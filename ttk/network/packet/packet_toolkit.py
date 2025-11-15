@@ -4,7 +4,7 @@ import os
 import socket
 import time
 
-import netifaces
+import netifaces2 as netifaces
 import psutil
 from scapy.all import (
     Ether,
