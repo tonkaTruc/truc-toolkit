@@ -11,8 +11,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Python
     python3.12 \
-    python3-pip \
     python3.12-venv \
+    # Build tools
+    curl \
     # GStreamer core and plugins
     gstreamer1.0-tools \
     gstreamer1.0-plugins-base \
@@ -49,6 +50,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
     && update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
 
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.cargo/bin:${PATH}"
+
 # Set working directory
 WORKDIR /app
 
@@ -60,9 +65,11 @@ COPY README.md ./
 # Create necessary directories
 RUN mkdir -p Resources/cap_store
 
-# Install Python dependencies
-RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    python3 -m pip install --no-cache-dir -e ".[streaming]"
+# Install Python dependencies using uv
+RUN uv sync --extra streaming
+
+# Add uv's virtual environment to PATH
+ENV PATH="/app/.venv/bin:${PATH}"
 
 # Verify CLI entry point is available
 RUN which dora && dora --help
