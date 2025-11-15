@@ -94,7 +94,12 @@ class RTPStreamExtractor:
         34: "video",  # H263
     }
 
-    def __init__(self, use_ptp: bool = False, stream_type_override: Optional[Dict[int, StreamType]] = None):
+    def __init__(
+        self,
+        use_ptp: bool = False,
+        stream_type_override: Optional[Dict[int, StreamType]] = None,
+        payload_type_override: Optional[Dict[int, StreamType]] = None
+    ):
         """Initialize RTP stream extractor.
 
         Args:
@@ -102,9 +107,13 @@ class RTPStreamExtractor:
             stream_type_override: Optional dict mapping SSRC to forced stream type.
                                  If specified, overrides auto-detection for those SSRCs.
                                  Example: {0x12345678: "audio", 0x87654321: "video"}
+            payload_type_override: Optional dict mapping payload type to forced stream type.
+                                  Overrides the default payload type mapping.
+                                  Example: {98: "audio", 100: "video"}
         """
         self.use_ptp = use_ptp
         self.stream_type_override = stream_type_override or {}
+        self.payload_type_override = payload_type_override or {}
         self.streams: Dict[int, List[RTPPacketInfo]] = defaultdict(list)
         self.stream_info: Dict[int, RTPStreamInfo] = {}
 
@@ -308,11 +317,15 @@ class RTPStreamExtractor:
         Returns:
             Stream type: "audio", "video", "meta", or "unknown"
         """
-        # Check for manual override first
+        # Check for SSRC-based manual override first (highest priority)
         if ssrc in self.stream_type_override:
             return self.stream_type_override[ssrc]
 
-        # Auto-detect based on payload type
+        # Check for payload type override (medium priority)
+        if payload_type in self.payload_type_override:
+            return self.payload_type_override[payload_type]
+
+        # Auto-detect based on default payload type mapping (lowest priority)
         return self.PAYLOAD_TYPE_TO_STREAM_TYPE.get(payload_type, "unknown")
 
     def _analyze_stream(self, packets: List[RTPPacketInfo]) -> RTPStreamInfo:

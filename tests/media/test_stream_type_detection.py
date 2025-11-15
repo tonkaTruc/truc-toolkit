@@ -52,10 +52,10 @@ def test_auto_detection():
 def test_manual_override():
     """Test manual stream type override."""
     print("\n" + "="*80)
-    print("Test 2: Manual Stream Type Override")
+    print("Test 2: Manual Stream Type Override (by SSRC)")
     print("="*80)
 
-    # Create extractor with manual overrides
+    # Create extractor with manual SSRC overrides
     override_map = {
         0x12345678: "audio",    # Force PT 96 to be audio
         0xABCDEF00: "video",    # Force PT 97 to be video
@@ -81,9 +81,93 @@ def test_manual_override():
 
     print(f"\n{'='*80}")
     if all_passed:
-        print("✓ All override tests PASSED")
+        print("✓ All SSRC override tests PASSED")
     else:
-        print("✗ Some override tests FAILED")
+        print("✗ Some SSRC override tests FAILED")
+    print("="*80)
+
+    return all_passed
+
+
+def test_payload_type_override():
+    """Test payload type override."""
+    print("\n" + "="*80)
+    print("Test 3: Manual Stream Type Override (by Payload Type)")
+    print("="*80)
+
+    # Create extractor with payload type overrides
+    pt_override = {
+        98: "audio",    # Force PT 98 (normally meta) to audio
+        100: "video",   # Force PT 100 (normally audio) to video
+    }
+
+    extractor = RTPStreamExtractor(payload_type_override=pt_override)
+
+    test_cases = [
+        (0x11111111, 98, "audio", "Override PT 98 (normally meta) to audio"),
+        (0x22222222, 100, "video", "Override PT 100 (normally audio) to video"),
+        (0x33333333, 96, "video", "No override - auto-detect PT 96 as video"),
+        (0x44444444, 97, "audio", "No override - auto-detect PT 97 as audio"),
+    ]
+
+    all_passed = True
+    for ssrc, pt, expected_type, description in test_cases:
+        detected = extractor._detect_stream_type(ssrc=ssrc, payload_type=pt)
+        status = "✓" if detected == expected_type else "✗"
+        if detected != expected_type:
+            all_passed = False
+        print(f"  {status} SSRC {ssrc:#010x} PT {pt:3d} -> {detected:8s}")
+        print(f"      {description}")
+
+    print(f"\n{'='*80}")
+    if all_passed:
+        print("✓ All payload type override tests PASSED")
+    else:
+        print("✗ Some payload type override tests FAILED")
+    print("="*80)
+
+    return all_passed
+
+
+def test_override_priority():
+    """Test that SSRC override takes priority over payload type override."""
+    print("\n" + "="*80)
+    print("Test 4: Override Priority (SSRC > Payload Type > Auto-detect)")
+    print("="*80)
+
+    # Create extractor with both types of overrides
+    ssrc_override = {
+        0xAAAAAAAA: "meta",    # SSRC override to meta
+    }
+    pt_override = {
+        98: "audio",   # PT override to audio
+    }
+
+    extractor = RTPStreamExtractor(
+        stream_type_override=ssrc_override,
+        payload_type_override=pt_override
+    )
+
+    test_cases = [
+        (0xAAAAAAAA, 98, "meta", "SSRC override (meta) beats PT override (audio)"),
+        (0xBBBBBBBB, 98, "audio", "PT override (audio) beats auto-detect (meta)"),
+        (0xCCCCCCCC, 96, "video", "Auto-detect PT 96 as video (no overrides)"),
+    ]
+
+    all_passed = True
+    for ssrc, pt, expected_type, description in test_cases:
+        detected = extractor._detect_stream_type(ssrc=ssrc, payload_type=pt)
+        status = "✓" if detected == expected_type else "✗"
+        if detected != expected_type:
+            all_passed = False
+        print(f"  {status} SSRC {ssrc:#010x} PT {pt:3d} -> {detected:8s}")
+        print(f"      {description}")
+
+    print(f"\n{'='*80}")
+    if all_passed:
+        print("✓ All priority tests PASSED")
+    else:
+        print("✗ Some priority tests FAILED")
     print("="*80)
 
     return all_passed
@@ -153,7 +237,9 @@ def main():
 
     results = []
     results.append(("Auto-Detection", test_auto_detection()))
-    results.append(("Manual Override", test_manual_override()))
+    results.append(("SSRC Override", test_manual_override()))
+    results.append(("Payload Type Override", test_payload_type_override()))
+    results.append(("Override Priority", test_override_priority()))
     results.append(("PCAP Integration", test_with_pcap()))
 
     # Summary
