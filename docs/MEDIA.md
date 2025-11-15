@@ -36,7 +36,7 @@ Video export requires FFmpeg to be installed on your system:
 Analyze a pcap file and list all detected RTP streams:
 
 ```bash
-dtk media list-streams <pcap_file> [--use-ptp]
+dora media list-streams <pcap_file> [--use-ptp]
 ```
 
 **Options:**
@@ -44,8 +44,8 @@ dtk media list-streams <pcap_file> [--use-ptp]
 
 **Example:**
 ```bash
-dtk media list-streams ST2110-30_audio.pcap
-dtk media list-streams video_capture.pcap --use-ptp
+dora media list-streams ST2110-30_audio.pcap
+dora media list-streams video_capture.pcap --use-ptp
 ```
 
 **Output:**
@@ -69,7 +69,7 @@ SSRC: 0x12345678
 Export audio streams from pcap to various audio formats:
 
 ```bash
-dtk media export-audio <pcap_file> -o <output_file> [options]
+dora media export-audio <pcap_file> -o <output_file> [options]
 ```
 
 **Options:**
@@ -86,19 +86,19 @@ dtk media export-audio <pcap_file> -o <output_file> [options]
 
 ```bash
 # Export to WAV (default, uncompressed)
-dtk media export-audio audio.pcap -o output.wav
+dora media export-audio audio.pcap -o output.wav
 
 # Export to FLAC (lossless compression)
-dtk media export-audio audio.pcap -o output.flac --format flac
+dora media export-audio audio.pcap -o output.flac --format flac
 
 # Export to MP3 (lossy compression)
-dtk media export-audio audio.pcap -o output.mp3 --format mp3 --bitrate 320
+dora media export-audio audio.pcap -o output.mp3 --format mp3 --bitrate 320
 
 # Export specific stream with PTP timing
-dtk media export-audio audio.pcap -o output.wav --ssrc 0x12345678 --use-ptp
+dora media export-audio audio.pcap -o output.wav --ssrc 0x12345678 --use-ptp
 
 # Override auto-detection
-dtk media export-audio audio.pcap -o output.wav --sample-rate 48000 --bit-depth 24 --channels 2
+dora media export-audio audio.pcap -o output.wav --sample-rate 48000 --bit-depth 24 --channels 2
 ```
 
 **Supported Audio Formats:**
@@ -113,7 +113,7 @@ dtk media export-audio audio.pcap -o output.wav --sample-rate 48000 --bit-depth 
 Export video streams from pcap to various video formats:
 
 ```bash
-dtk media export-video <pcap_file> -o <output_file> [options]
+dora media export-video <pcap_file> -o <output_file> [options]
 ```
 
 **Options:**
@@ -130,16 +130,16 @@ dtk media export-video <pcap_file> -o <output_file> [options]
 
 ```bash
 # Export to MP4 with H.264 (most compatible)
-dtk media export-video video.pcap -o output.mp4
+dora media export-video video.pcap -o output.mp4
 
 # Export to MOV with ProRes (for editing)
-dtk media export-video video.pcap -o output.mov --codec prores --prores-profile hq
+dora media export-video video.pcap -o output.mov --codec prores --prores-profile hq
 
 # Export to MP4 with H.265 (better compression)
-dtk media export-video video.pcap -o output.mp4 --codec h265 --crf 20 --preset slow
+dora media export-video video.pcap -o output.mp4 --codec h265 --crf 20 --preset slow
 
 # Export specific stream with PTP timing
-dtk media export-video video.pcap -o output.mov --ssrc 0xabcdef --use-ptp
+dora media export-video video.pcap -o output.mov --ssrc 0xabcdef --use-ptp
 ```
 
 **Video Codecs:**
@@ -166,7 +166,7 @@ dtk media export-video video.pcap -o output.mov --ssrc 0xabcdef --use-ptp
 Export ancillary data (captions, timecode, metadata) from pcap:
 
 ```bash
-dtk media export-anc <pcap_file> -o <output_file> [options]
+dora media export-anc <pcap_file> -o <output_file> [options]
 ```
 
 **Options:**
@@ -180,19 +180,19 @@ dtk media export-anc <pcap_file> -o <output_file> [options]
 
 ```bash
 # Export all ancillary data to JSON
-dtk media export-anc anc.pcap -o output.json
+dora media export-anc anc.pcap -o output.json
 
 # Export captions to SRT subtitle file
-dtk media export-anc anc.pcap -o captions.srt --type captions --format srt
+dora media export-anc anc.pcap -o captions.srt --type captions --format srt
 
 # Export captions to WebVTT
-dtk media export-anc anc.pcap -o captions.vtt --type captions --format vtt
+dora media export-anc anc.pcap -o captions.vtt --type captions --format vtt
 
 # Export timecode to CSV
-dtk media export-anc anc.pcap -o timecode.csv --type timecode --format csv
+dora media export-anc anc.pcap -o timecode.csv --type timecode --format csv
 
 # Export all ANC data as text
-dtk media export-anc anc.pcap -o anc_data.txt --format txt --use-ptp
+dora media export-anc anc.pcap -o anc_data.txt --format txt --use-ptp
 ```
 
 **Ancillary Data Types:**
@@ -224,17 +224,17 @@ The toolkit automatically detects and decodes:
 
 1. Capture audio stream:
 ```bash
-sudo dtk network mcast-join -i eth0 --group 239.0.0.1 --capture 1000 --save audio_capture.pcap
+sudo dora network mcast-join -i eth0 --group 239.0.0.1 --capture 1000 --save audio_capture.pcap
 ```
 
 2. List streams to verify:
 ```bash
-dtk media list-streams audio_capture.pcap
+dora media list-streams audio_capture.pcap
 ```
 
 3. Export to WAV:
 ```bash
-dtk media export-audio audio_capture.pcap -o audio.wav
+dora media export-audio audio_capture.pcap -o audio.wav
 ```
 
 ### Multi-Stream Export
@@ -243,21 +243,21 @@ If a pcap contains multiple streams, export each separately:
 
 ```bash
 # List streams and note SSRCs
-dtk media list-streams multi_stream.pcap
+dora media list-streams multi_stream.pcap
 
 # Export each stream by SSRC
-dtk media export-audio multi_stream.pcap -o stream1.wav --ssrc 0x12345678
-dtk media export-audio multi_stream.pcap -o stream2.wav --ssrc 0x87654321
+dora media export-audio multi_stream.pcap -o stream1.wav --ssrc 0x12345678
+dora media export-audio multi_stream.pcap -o stream2.wav --ssrc 0x87654321
 ```
 
 ### Video with Captions
 
 ```bash
 # Export video
-dtk media export-video video.pcap -o video.mp4
+dora media export-video video.pcap -o video.mp4
 
 # Export captions
-dtk media export-anc video.pcap -o captions.srt --type captions --format srt
+dora media export-anc video.pcap -o captions.srt --type captions --format srt
 
 # Use in video player (VLC, mpv, etc.) - captions will be auto-loaded
 ```
@@ -310,7 +310,7 @@ Processing times (approximate):
 
 ### "No RTP streams found"
 
-- Verify the pcap contains RTP packets: `dtk network inspect-pcap file.pcap`
+- Verify the pcap contains RTP packets: `dora network inspect-pcap file.pcap`
 - Check that packets have UDP and RTP layers
 - Try a different pcap file from the test collection
 

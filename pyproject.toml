@@ -21,6 +21,11 @@ dependencies = [
     "pillow>=10.0.0",
 ]
 
+[project.optional-dependencies]
+streaming = [
+    "PyGObject>=3.42.0",
+]
+
 [project.scripts]
 dora = "dtk.cli:cli"
 
