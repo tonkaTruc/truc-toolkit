@@ -51,8 +51,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
 
 # Install uv
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
-    . "$HOME/.cargo/env"
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Set working directory
@@ -67,7 +66,7 @@ COPY README.md ./
 RUN mkdir -p Resources/cap_store
 
 # Install Python dependencies using uv
-RUN . "$HOME/.cargo/env" && uv sync --extra streaming
+RUN PATH="/root/.cargo/bin:${PATH}" uv sync --extra streaming
 
 # Add uv's virtual environment to PATH
 ENV PATH="/app/.venv/bin:${PATH}"
