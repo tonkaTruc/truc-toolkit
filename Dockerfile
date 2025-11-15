@@ -7,66 +7,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.12 \
-    python3-pip \
-    python3.12-venv \
-    python3-dev \
-    # Network tools (useful for debugging)
-    net-tools \
-    iproute2 \
-    iputils-ping \
-    tcpdump \
-    # FFmpeg for media processing
-    ffmpeg \
-    libsndfile1
-
-# Install GStreamer and its dependencies
-RUN apt-get -y --no-install-recommends install \
-    git \
-    cmake \
-    autoconf \
-    automake \
-    libtool \
-    gstreamer-1.0 \
-    gstreamer1.0-dev \
-    libgstreamer1.0-0 \
-    gstreamer1.0-plugins-base \
-    gstreamer1.0-plugins-good \
-    gstreamer1.0-plugins-bad \
-    gstreamer1.0-plugins-ugly \
-    gstreamer1.0-libav \
-    # gstreamer1.0-doc \
-    gstreamer1.0-tools \
-    gstreamer1.0-x \
-    gstreamer1.0-alsa \
-    gstreamer1.0-gl \
-    gstreamer1.0-gtk3 \
-    gstreamer1.0-qt5 \
-    gstreamer1.0-pulseaudio \
-    # python-gst-1.0 \
-    libgirepository1.0-dev \
-    libgstreamer-plugins-base1.0-dev \
-    libcairo2-dev \
-    gir1.2-gstreamer-1.0 \
-    python3-gi \
-    python-gi-dev
-
-RUN rm -rf /var/lib/apt/lists/* \
-    # Set python3.12 as default python3
-    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
-    && update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
-
-# # GObject Introspection and Python bindings
-# libgirepository1.0-dev \
-# gobject-introspection \
-# libglib2.0-dev \
-# gir1.2-gstreamer-1.0 \
-# python3-gi \
-# python3-gi-cairo \
-# python-gi-dev \
-
-
 # # Install Python and system dependencies including GStreamer
 # RUN apt-get update && apt-get install -y --no-install-recommends \
 #     # Python
@@ -123,6 +63,66 @@ RUN rm -rf /var/lib/apt/lists/* \
 #     # Set python3.12 as default python3
 #     && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
 #     && update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
+
+
+# # GObject Introspection and Python bindings
+# libgirepository1.0-dev \
+# gobject-introspection \
+# libglib2.0-dev \
+# gir1.2-gstreamer-1.0 \
+# python3-gi \
+# python3-gi-cairo \
+# python-gi-dev \
+
+# # Network tools (useful for debugging)
+# net-tools \
+# iproute2 \
+# iputils-ping \
+# tcpdump \
+# # FFmpeg for media processing
+# ffmpeg \
+# libsndfile1
+
+# Install GStreamer and its dependencies
+RUN apt-get -y --no-install-recommends install \
+    git \
+    cmake \
+    autoconf \
+    automake \
+    libtool \
+    gstreamer-1.0 \
+    gstreamer1.0-dev \
+    libgstreamer1.0-0 \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-ugly \
+    gstreamer1.0-libav \
+    # gstreamer1.0-doc \
+    gstreamer1.0-tools \
+    gstreamer1.0-x \
+    gstreamer1.0-alsa \
+    gstreamer1.0-gl \
+    gstreamer1.0-gtk3 \
+    gstreamer1.0-qt5 \
+    gstreamer1.0-pulseaudio \
+    # python-gst-1.0 \
+    libgirepository1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libcairo2-dev \
+    gir1.2-gstreamer-1.0 \
+    python3-gi \
+    python-gi-dev
+
+RUN apt-get install -y python3 \
+    python3-pip \
+    python3-dev
+
+RUN rm -rf /var/lib/apt/lists/* \
+    # Set python3.12 as default python3
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
+
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
