@@ -6,6 +6,9 @@ Usage:
     ttk network capture -i eth0
     ttk network list-pcaps
     ttk network replay-pcap ptp_cap.pcap -i eth0
+    ttk network create-packet -i eth0
+    ttk network modify-pcap input.pcap output.pcap
+    ttk network inspect-pcap file.pcap
 
 See docs/CLI.md for development guide.
 """
@@ -218,6 +221,318 @@ def replay_pcap(pcap_file, interface, layer, count, interval, quiet, info):
         sys.exit(1)
     except Exception as e:
         click.echo(f"Error replaying pcap: {e}", err=True)
+        sys.exit(1)
+
+
+@network.command(name="create-packet")
+@click.option(
+    "--interface", "-i",
+    required=True,
+    help="Network interface to send packet on"
+)
+@click.option(
+    "--src-mac",
+    help="Source MAC address (default: 00:00:00:00:00:00)"
+)
+@click.option(
+    "--dst-mac",
+    help="Destination MAC address (default: 00:00:00:00:00:00)"
+)
+@click.option(
+    "--src-ip",
+    help="Source IP address"
+)
+@click.option(
+    "--dst-ip",
+    help="Destination IP address"
+)
+@click.option(
+    "--protocol",
+    type=click.Choice(['udp', 'tcp']),
+    default='udp',
+    help="Transport protocol (default: udp)"
+)
+@click.option(
+    "--sport",
+    type=int,
+    help="Source port"
+)
+@click.option(
+    "--dport",
+    type=int,
+    help="Destination port"
+)
+@click.option(
+    "--payload",
+    help="Packet payload (text)"
+)
+@click.option(
+    "--count",
+    "-c",
+    type=int,
+    default=1,
+    help="Number of packets to send (default: 1)"
+)
+@click.option(
+    "--layer",
+    "-l",
+    type=click.Choice(['2', '3']),
+    default='2',
+    help="OSI layer to send at: 2 (L2 with Ethernet) or 3 (L3 IP only, default: 2)"
+)
+def create_packet(interface, src_mac, dst_mac, src_ip, dst_ip, protocol, sport, dport, payload, count, layer):
+    """Create and send custom packets on a network interface.
+
+    Examples:
+        ttk network create-packet -i eth0 --src-ip 192.168.1.100 --dst-ip 192.168.1.1 --dport 5000
+        ttk network create-packet -i eth0 --protocol tcp --sport 8080 --dport 80 --payload "Hello"
+
+    Requires root/sudo privileges.
+    """
+    if os.geteuid() != 0:
+        click.echo(
+            "Error: This command requires root privileges to send packets.",
+            err=True
+        )
+        sys.exit(1)
+
+    try:
+        # Lazy import
+        from ttk.network.packet.packet_creator import PacketBuilder
+        from scapy.all import sendp, send
+
+        # Build packet
+        builder = PacketBuilder(src_mac=src_mac, dst_mac=dst_mac)
+
+        # Add IP layer if specified
+        if src_ip or dst_ip:
+            builder.add_ip(src=src_ip, dst=dst_ip)
+
+        # Add transport layer
+        if protocol == 'udp':
+            builder.add_udp(sport=sport, dport=dport)
+        elif protocol == 'tcp':
+            builder.add_tcp(sport=sport, dport=dport)
+
+        # Add payload if specified
+        if payload:
+            builder.add_payload(payload)
+
+        packet = builder.build()
+
+        # Display packet info
+        click.echo("Packet to send:")
+        click.echo(packet.summary())
+        click.echo()
+
+        # Send packet
+        layer_num = int(layer)
+        if layer_num == 2:
+            sendp(packet, iface=interface, count=count, verbose=True)
+        else:
+            send(packet, count=count, verbose=True)
+
+        click.echo(f"\nSuccessfully sent {count} packet(s).")
+
+    except Exception as e:
+        click.echo(f"Error creating/sending packet: {e}", err=True)
+        sys.exit(1)
+
+
+@network.command(name="modify-pcap")
+@click.argument("input_file")
+@click.argument("output_file")
+@click.option(
+    "--zero-ip-src",
+    is_flag=True,
+    help="Zero out IP source addresses"
+)
+@click.option(
+    "--zero-ip-dst",
+    is_flag=True,
+    help="Zero out IP destination addresses"
+)
+@click.option(
+    "--zero-mac-src",
+    is_flag=True,
+    help="Zero out MAC source addresses"
+)
+@click.option(
+    "--zero-mac-dst",
+    is_flag=True,
+    help="Zero out MAC destination addresses"
+)
+@click.option(
+    "--anonymize",
+    is_flag=True,
+    help="Anonymize all source addresses (IP and MAC)"
+)
+@click.option(
+    "--ip-src",
+    help="Set IP source address to specific value"
+)
+@click.option(
+    "--ip-dst",
+    help="Set IP destination address to specific value"
+)
+@click.option(
+    "--mac-src",
+    help="Set MAC source address to specific value"
+)
+@click.option(
+    "--mac-dst",
+    help="Set MAC destination address to specific value"
+)
+def modify_pcap(input_file, output_file, zero_ip_src, zero_ip_dst, zero_mac_src, zero_mac_dst,
+                anonymize, ip_src, ip_dst, mac_src, mac_dst):
+    """Modify packet fields in a pcap file.
+
+    INPUT_FILE can be a filename from cap_store or a full path.
+    OUTPUT_FILE is where the modified pcap will be saved.
+
+    Examples:
+        ttk network modify-pcap input.pcap output.pcap --anonymize
+        ttk network modify-pcap input.pcap output.pcap --zero-ip-src --zero-mac-src
+        ttk network modify-pcap input.pcap output.pcap --ip-src 10.0.0.1 --mac-src 00:11:22:33:44:55
+    """
+    try:
+        # Lazy imports
+        from ttk.network.packet.replay import get_pcap_path
+        from ttk.network.packet.packet_modifier import (
+            anonymize_packets,
+            modify_ip_field,
+            modify_ethernet_field,
+            save_packets
+        )
+        from scapy.all import rdpcap
+
+        # Read input file
+        try:
+            input_path = get_pcap_path(input_file)
+        except FileNotFoundError:
+            # If not in cap_store, try as direct path
+            if not os.path.exists(input_file):
+                raise FileNotFoundError(f"Input file not found: {input_file}")
+            input_path = input_file
+
+        packets = rdpcap(str(input_path))
+        click.echo(f"Loaded {len(packets)} packets from {input_path}")
+
+        # Apply modifications
+        if anonymize:
+            packets = anonymize_packets(packets)
+            click.echo("Applied anonymization (zeroed IP src and MAC src)")
+        else:
+            if zero_ip_src or ip_src:
+                value = ip_src if ip_src else '0.0.0.0'
+                modified, skipped = modify_ip_field(packets, 'src', value)
+                click.echo(f"Modified IP src on {modified} packets ({skipped} skipped)")
+
+            if zero_ip_dst or ip_dst:
+                value = ip_dst if ip_dst else '0.0.0.0'
+                modified, skipped = modify_ip_field(packets, 'dst', value)
+                click.echo(f"Modified IP dst on {modified} packets ({skipped} skipped)")
+
+            if zero_mac_src or mac_src:
+                value = mac_src if mac_src else '00:00:00:00:00:00'
+                modified, skipped = modify_ethernet_field(packets, 'src', value)
+                click.echo(f"Modified MAC src on {modified} packets ({skipped} skipped)")
+
+            if zero_mac_dst or mac_dst:
+                value = mac_dst if mac_dst else '00:00:00:00:00:00'
+                modified, skipped = modify_ethernet_field(packets, 'dst', value)
+                click.echo(f"Modified MAC dst on {modified} packets ({skipped} skipped)")
+
+        # Save output
+        save_packets(packets, output_file)
+        click.echo(f"\nSaved modified pcap to: {output_file}")
+
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error modifying pcap: {e}", err=True)
+        sys.exit(1)
+
+
+@network.command(name="inspect-pcap")
+@click.argument("pcap_file")
+@click.option(
+    "--packet-num",
+    "-n",
+    type=int,
+    help="Show details for a specific packet number (0-indexed)"
+)
+@click.option(
+    "--show-hex",
+    is_flag=True,
+    help="Show hexdump of packet"
+)
+@click.option(
+    "--layers",
+    is_flag=True,
+    help="Show layer information"
+)
+def inspect_pcap(pcap_file, packet_num, show_hex, layers):
+    """Inspect packets in a pcap file with detailed information.
+
+    PCAP_FILE can be a filename from cap_store or a full path.
+
+    Examples:
+        ttk network inspect-pcap file.pcap
+        ttk network inspect-pcap file.pcap -n 0 --show-hex
+        ttk network inspect-pcap file.pcap --layers
+    """
+    try:
+        # Lazy imports
+        from ttk.network.packet.replay import get_pcap_path
+        from scapy.all import rdpcap, hexdump
+
+        # Read pcap file
+        try:
+            pcap_path = get_pcap_path(pcap_file)
+        except FileNotFoundError:
+            if not os.path.exists(pcap_file):
+                raise FileNotFoundError(f"Pcap file not found: {pcap_file}")
+            pcap_path = pcap_file
+
+        packets = rdpcap(str(pcap_path))
+
+        click.echo(f"Pcap file: {pcap_path}")
+        click.echo(f"Total packets: {len(packets)}\n")
+
+        if packet_num is not None:
+            # Show specific packet
+            if packet_num < 0 or packet_num >= len(packets):
+                click.echo(f"Error: Packet number {packet_num} out of range (0-{len(packets)-1})", err=True)
+                sys.exit(1)
+
+            pkt = packets[packet_num]
+            click.echo(f"=== Packet {packet_num} ===")
+            click.echo(f"Summary: {pkt.summary()}")
+            click.echo()
+
+            if layers:
+                click.echo("Layers:")
+                pkt.show()
+                click.echo()
+
+            if show_hex:
+                click.echo("Hexdump:")
+                hexdump(pkt)
+        else:
+            # Show summary of all packets
+            for i, pkt in enumerate(packets):
+                click.echo(f"{i:4d}: {pkt.summary()}")
+
+            if layers or show_hex:
+                click.echo("\nNote: Use -n <packet_num> to show detailed layer/hex info for a specific packet")
+
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error inspecting pcap: {e}", err=True)
         sys.exit(1)
 
 
