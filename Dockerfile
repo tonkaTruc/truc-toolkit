@@ -66,7 +66,7 @@ COPY README.md ./
 RUN mkdir -p Resources/cap_store
 
 # Install Python dependencies using uv
-RUN PATH="/root/.cargo/bin:${PATH}" uv sync --extra streaming
+RUN uv sync --extra streaming
 
 # Add uv's virtual environment to PATH
 ENV PATH="/app/.venv/bin:${PATH}"
