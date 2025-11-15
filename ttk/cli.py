@@ -9,6 +9,8 @@ Usage:
     ttk network create-packet -i eth0
     ttk network modify-pcap input.pcap output.pcap
     ttk network inspect-pcap file.pcap
+    ttk network multicast-join --local-ip 192.168.1.100 --group 239.0.0.1
+    ttk network multicast-leave --local-ip 192.168.1.100 --group 239.0.0.1
 
 See docs/CLI.md for development guide.
 """
@@ -533,6 +535,126 @@ def inspect_pcap(pcap_file, packet_num, show_hex, layers):
         sys.exit(1)
     except Exception as e:
         click.echo(f"Error inspecting pcap: {e}", err=True)
+        sys.exit(1)
+
+
+@network.command(name="multicast-join")
+@click.option(
+    "--local-ip",
+    required=True,
+    help="Local interface IP address to use for multicast"
+)
+@click.option(
+    "--group", "-g",
+    required=True,
+    help="Multicast group IP address to join (e.g., 239.0.0.1)"
+)
+@click.option(
+    "--capture", "-c",
+    type=int,
+    help="Number of packets to capture after joining (requires root)"
+)
+@click.option(
+    "--interface", "-i",
+    help="Network interface name for packet capture (e.g., eth0)"
+)
+def multicast_join(local_ip, group, capture, interface):
+    """Join a multicast group and optionally capture packets.
+
+    Examples:
+        ttk network multicast-join --local-ip 192.168.1.100 --group 239.0.0.1
+        ttk network multicast-join --local-ip 192.168.1.100 --group 239.0.0.1 --capture 20 -i eth0
+
+    Note: Packet capture requires root/sudo privileges.
+    """
+    # Check for root if capture is requested
+    if capture and os.geteuid() != 0:
+        click.echo(
+            "Error: Packet capture requires root privileges.",
+            err=True
+        )
+        sys.exit(1)
+
+    # Validate that interface is provided if capture is requested
+    if capture and not interface:
+        click.echo(
+            "Error: --interface is required when using --capture",
+            err=True
+        )
+        sys.exit(1)
+
+    try:
+        # Lazy import
+        from ttk.network.multicast import MulticastMgr
+
+        click.echo(f"Joining multicast group {group} on interface {local_ip}...")
+
+        # Create multicast manager - we pass local_ip as switch_ip
+        # since the manager will use get_best_interface_for() which should return
+        # the same IP when it's a local interface
+        mcast_mgr = MulticastMgr(switch_ip=local_ip)
+
+        # Join the multicast group
+        mcast_mgr.join(group)
+        click.echo(f"Successfully joined multicast group {group}")
+
+        # If capture is requested, capture packets
+        if capture:
+            from ttk.network.packet.capture import PackerCaptor
+
+            click.echo(f"\nCapturing {capture} packets on {interface}...")
+            captor = PackerCaptor(capture_int=interface)
+            pkts = captor.capture_traffic(count=capture)
+
+            click.echo(f"\nCaptured {len(pkts)} packets:\n")
+            for pkt in pkts:
+                click.echo(pkt.summary())
+
+            # Leave the multicast group after capture
+            click.echo(f"\nLeaving multicast group {group}...")
+            mcast_mgr.leave(group)
+            click.echo(f"Successfully left multicast group {group}")
+        else:
+            click.echo("\nNote: The multicast group membership will remain active.")
+            click.echo(f"Use 'ttk network multicast-leave --local-ip {local_ip} --group {group}' to leave.")
+
+    except Exception as e:
+        click.echo(f"Error with multicast operation: {e}", err=True)
+        sys.exit(1)
+
+
+@network.command(name="multicast-leave")
+@click.option(
+    "--local-ip",
+    required=True,
+    help="Local interface IP address used for multicast"
+)
+@click.option(
+    "--group", "-g",
+    required=True,
+    help="Multicast group IP address to leave (e.g., 239.0.0.1)"
+)
+def multicast_leave(local_ip, group):
+    """Leave a multicast group.
+
+    Examples:
+        ttk network multicast-leave --local-ip 192.168.1.100 --group 239.0.0.1
+    """
+    try:
+        # Lazy import
+        from ttk.network.multicast import MulticastMgr
+
+        click.echo(f"Leaving multicast group {group} on interface {local_ip}...")
+
+        # Create multicast manager
+        mcast_mgr = MulticastMgr(switch_ip=local_ip)
+
+        # Leave the multicast group
+        mcast_mgr.leave(group)
+        click.echo(f"Successfully left multicast group {group}")
+
+    except Exception as e:
+        click.echo(f"Error leaving multicast group: {e}", err=True)
         sys.exit(1)
 
 

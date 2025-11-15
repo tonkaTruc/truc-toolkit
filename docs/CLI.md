@@ -17,7 +17,14 @@ ttk = "ttk.cli:cli"
 ttk (main group)
 └── network (command group)
     ├── list-interfaces (command)
-    └── capture (command)
+    ├── capture (command)
+    ├── list-pcaps (command)
+    ├── replay-pcap (command)
+    ├── create-packet (command)
+    ├── modify-pcap (command)
+    ├── inspect-pcap (command)
+    ├── multicast-join (command)
+    └── multicast-leave (command)
 ```
 
 ## Adding Commands
