@@ -10,8 +10,8 @@ import warnings
 warnings.filterwarnings('ignore')
 os.environ['SCAPY_NO_WARNINGS'] = '1'
 
-# Add toolkit to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add toolkit to path (go up to project root: tests/media -> tests -> toolkit)
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Import but catch any errors
 try:

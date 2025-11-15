@@ -185,11 +185,14 @@ def test_pcap_file(pcap_path: str):
 
 def main():
     """Run tests on ST 2110 pcap files."""
+    # Get project root (tests/media -> tests -> toolkit)
+    project_root = Path(__file__).parent.parent.parent
+
     test_files = [
-        "Resources/cap_store/ST2110-30_SxTAG_1.pcapng",
-        "Resources/cap_store/ST2110-30_SxTAG_2.pcapng",
-        "Resources/cap_store/ST2110-31_2ch_PCM_1kHz_20dBFS.pcap",
-        "Resources/cap_store/ST2110-31_DolbyD_20_192kbps_1kHz.pcap",
+        project_root / "Resources/cap_store/ST2110-30_SxTAG_1.pcapng",
+        project_root / "Resources/cap_store/ST2110-30_SxTAG_2.pcapng",
+        project_root / "Resources/cap_store/ST2110-31_2ch_PCM_1kHz_20dBFS.pcap",
+        project_root / "Resources/cap_store/ST2110-31_DolbyD_20_192kbps_1kHz.pcap",
     ]
 
     print("="*80)
@@ -200,8 +203,8 @@ def main():
 
     results = {}
     for pcap_file in test_files:
-        if Path(pcap_file).exists():
-            results[Path(pcap_file).name] = test_pcap_file(pcap_file)
+        if pcap_file.exists():
+            results[pcap_file.name] = test_pcap_file(str(pcap_file))
         else:
             print(f"\n✗ File not found: {pcap_file}")
 
@@ -217,7 +220,10 @@ def main():
     total = len(results)
 
     print("="*80)
-    print(f"Result: {passed}/{total} tests passed ({passed/total*100:.0f}%)")
+    if total > 0:
+        print(f"Result: {passed}/{total} tests passed ({passed/total*100:.0f}%)")
+    else:
+        print("Result: No tests found")
     print("="*80)
 
     return 0 if passed == total else 1
