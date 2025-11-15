@@ -1,15 +1,29 @@
-from scapy.all import *
-from custom_headers.erspan import *
-from custom_headers.PTP import *
-
-import socket
-import psutil
 import json
+import logging
 import os
-import netifaces
-
-import subprocess
+import socket
 import time
+
+import netifaces
+import psutil
+from scapy.all import (
+    Ether,
+    IP,
+    UDP,
+    TCP,
+    RTP,
+    Raw,
+    sniff,
+    rdpcap,
+    wrpcap,
+    sendp,
+    send,
+    ls,
+    hexdump,
+    get_if_list,
+    get_windows_if_list,
+)
+from ttk.custom_headers.PTP import ieee1588
 
 packet_counter = 0
 current_rtp_time = 0
@@ -134,15 +148,20 @@ class pkt_craft:
 	def on_rx(self, pkt):
 		global packet_counter
 		packet_counter += 1
-		
+
 		global current_rtp_time
 		global rtp_stamps
 
 		# print(pkt.show())
 		# print("\n" + str(pkt[Raw]))
 		if IP in pkt:
-			scap
 			pkt[IP].dst = "0.0.0.0"
+			# Recalculate checksum after modification
+			del pkt[IP].chksum
+			if TCP in pkt:
+				del pkt[TCP].chksum
+			elif UDP in pkt:
+				del pkt[UDP].chksum
 		
 		# Force UDP payload to be interpreted as RTP
 		if UDP in pkt:
@@ -168,21 +187,9 @@ class pkt_craft:
 			pkt_start_num = input("Enter packet number to start inspection: ")
 			for p in self.current_pcap[int(pkt_start_num):]:
 
-				try:
-					ERSPAN in p
-				except:
-					print("GOT ERROR")
-
-#				try:
-#					ERSPAN_III in p
-#				except:
-#					print("GOT 2nd ERROR")
-				#
-				# if p.haslayer(ie):
-				# 	try:
-				# 		p[ieee1588] = p[Raw].load
-				# 	except IndexError as err:
-				# 		print("NO PTP: %s" % err)
+				# Check for PTP layer if needed
+				if p.haslayer(ieee1588):
+					logging.debug("Packet contains IEEE1588 PTP layer")
 
 				print(90 * "-")
 				p.show()
@@ -232,6 +239,13 @@ class pkt_craft:
 				print("IP src was: {}".format(pkt[IP].src))
 				pkt[IP].src = "0.0.0.0"
 				print("IP src now: {}".format(pkt[IP].src))
+
+				# Recalculate checksums after IP modification
+				del pkt[IP].chksum
+				if pkt.haslayer(TCP):
+					del pkt[TCP].chksum
+				elif pkt.haslayer(UDP):
+					del pkt[UDP].chksum
 			except IndexError as err:
 				logging.warning(err)
 
@@ -281,7 +295,7 @@ class pkt_craft:
 					pass
 
 		try:
-			cap = sniff(offline=file)
+			cap = rdpcap(file)
 		except FileNotFoundError as err:
 			print("File supplied for input does not exist: %s" % file)
 			return False
@@ -338,7 +352,7 @@ class pkt_craft:
 				print(" ")
 				
 				def global_pkt_change(layer, param, value):
-					"""Iterate through every packet in self.capture and apply global settings basrd on arguments
+					"""Iterate through every packet in self.capture and apply global settings based on arguments
 					provided
 
 					:argument layer
@@ -353,7 +367,7 @@ class pkt_craft:
 					no_layer_count = 0
 					applied_count = 0
 
-					# If cmd beings "ip"
+					# If cmd begins "ip"
 					if layer.lower() == "ip":
 						for pkt in self.current_pcap:
 							if pkt.haslayer(IP):
@@ -361,9 +375,15 @@ class pkt_craft:
 
 								if param.lower() == "src":
 									pkt[IP].src = value
-									
 								elif param.lower() == "dst":
 									pkt[IP].dst = value
+
+								# Recalculate checksums after modification
+								del pkt[IP].chksum
+								if pkt.haslayer(TCP):
+									del pkt[TCP].chksum
+								elif pkt.haslayer(UDP):
+									del pkt[UDP].chksum
 							else:
 								logging.info("Packet does not have IP layer: %s" % pkt.summary)
 								no_layer_count += 1
@@ -373,7 +393,7 @@ class pkt_craft:
 
 						return layer, param, value
 
-					# If cmd begins "mac"
+					# If cmd begins "eth"
 					elif layer.lower() == "eth":
 						for pkt in self.current_pcap:
 							if pkt.haslayer(Ether):
@@ -381,12 +401,11 @@ class pkt_craft:
 
 								if param.lower() == "src":
 									pkt[Ether].src = value
-
 								elif param.lower() == "dst":
 									pkt[Ether].dst = value
-
 							else:
 								logging.info("Packet does not have Ethernet layer: %s" % pkt.summary)
+								no_layer_count += 1
 
 						print("Parameters applied to %s packets. %s packets did not contain the target layer and have "
 								"not been changed" % (applied_count, no_layer_count))
@@ -443,8 +462,8 @@ class pkt_craft:
 
 			elif usr_opt == "6":
 				replay_opts = [
-					"Reliable replay (TCP)",
-					"Un-reliable replay (UDP)"
+					"Layer 2 replay (with Ethernet headers)",
+					"Layer 3 replay (IP only, no Ethernet)"
 				]
 				print(" ")
 				for opt, num in zip(replay_opts, [x for x in range(0, len(replay_opts))]):
@@ -453,17 +472,17 @@ class pkt_craft:
 				usr_opt = input("\nSelect replay type: ")
 
 				if usr_opt == "0":
-					sr(self.current_pcap)
-				elif usr_opt == "2":
-					sendp(self.current_pcap, iface=self.replay_interface["name"])
+					# Layer 2 replay with Ethernet headers
+					print(f"Replaying {len(self.current_pcap)} packets on interface {self.replay_interface['name']}")
+					sendp(self.current_pcap, iface=self.replay_interface["name"], verbose=True)
+				elif usr_opt == "1":
+					# Layer 3 replay (IP packets only)
+					print(f"Replaying {len(self.current_pcap)} packets at layer 3")
+					send(self.current_pcap, verbose=True)
+				else:
+					print(f"Invalid option: {usr_opt}")
 
-				def zero_dst(pkt):
-					pkt[Ether].dst = "00:00:00:00:00:00"
-					pkt[Ether].src = "00:00:00:00:00:00"
-
-					pkt[IP].src = "10.0.0.66"
-					pkt[IP].dst = "239.1.2.3"
-					return pkt
+				continue
 
 
 def configure_interface(interface=None):
