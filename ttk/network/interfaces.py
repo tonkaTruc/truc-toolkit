@@ -106,6 +106,37 @@ def get_best_interface_for(addr):
     return local_ip
 
 
+def get_interface_ip(interface_name: str) -> str:
+    """Get the IPv4 address for a given network interface.
+
+    Args:
+        interface_name: Name of the network interface (e.g., 'eth0')
+
+    Returns:
+        str: IPv4 address of the interface
+
+    Raises:
+        ValueError: If interface not found or has no IPv4 address
+    """
+    interfaces = create_interfaces_dict()
+
+    if interface_name not in interfaces:
+        available = ', '.join(interfaces.keys())
+        raise ValueError(
+            f"Interface '{interface_name}' not found. "
+            f"Available interfaces: {available}"
+        )
+
+    # Find the IPv4 address
+    for addr in interfaces[interface_name]['addresses']:
+        if addr['family'] == 'IPv4':
+            return addr['address']
+
+    raise ValueError(
+        f"Interface '{interface_name}' has no IPv4 address configured"
+    )
+
+
 def print_stream_info(socket):
 
     # Data waits on socket buffer until we retrieve it.

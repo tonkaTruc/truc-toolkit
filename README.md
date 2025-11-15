@@ -110,16 +110,16 @@ Join and leave multicast groups:
 
 ```bash
 # Join a multicast group
-ttk network mcast-join --local-ip 192.168.1.100 --group 239.0.0.1
+ttk network mcast-join -i eth0 --group 239.0.0.1
 
 # Join a multicast group and capture 20 packets
-sudo ttk network mcast-join --local-ip 192.168.1.100 --group 239.0.0.1 --capture 20 -i eth0
+sudo ttk network mcast-join -i eth0 --group 239.0.0.1 --capture 20
 
 # Leave a multicast group
-ttk network mcast-leave --local-ip 192.168.1.100 --group 239.0.0.1
+ttk network mcast-leave -i eth0 --group 239.0.0.1
 ```
 
-**Note:** Packet capture requires root/sudo privileges. When using `--capture`, the command will automatically leave the multicast group after capturing the specified number of packets.
+**Note:** The interface's IPv4 address is automatically detected. Packet capture requires root/sudo privileges. When using `--capture`, the command will automatically leave the multicast group after capturing the specified number of packets.
 
 ### Getting Help
 
