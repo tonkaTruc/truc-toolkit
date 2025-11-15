@@ -23,7 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 streaming = [
-    "PyGObject>=3.42.0",  # Requires girepository-2.0 (available in Python 3.12+ images)
+    "PyGObject>=3.42.0; platform_system != 'Linux'",  # Use system python3-gi on Linux/Docker
 ]
 
 [project.scripts]

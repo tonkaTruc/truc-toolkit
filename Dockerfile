@@ -54,7 +54,8 @@ COPY README.md ./
 RUN mkdir -p Resources/cap_store
 
 # Install Python dependencies
-# First install PyGObject from apt (already done above), then install package
+# Use system python3-gi (already installed above) instead of building PyGObject from pip
+# This avoids girepository-2.0 build dependency issues
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -e ".[streaming]"
 
