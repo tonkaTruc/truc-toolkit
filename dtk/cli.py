@@ -2,6 +2,8 @@
 
 Usage:
     dtk --help
+
+    # Network commands
     dtk network list-interfaces
     dtk network capture -i eth0
     dtk network list-pcaps
@@ -11,6 +13,12 @@ Usage:
     dtk network inspect-pcap file.pcap
     dtk network mcast-join -i eth0 --group 239.0.0.1
     dtk network mcast-leave -i eth0 --group 239.0.0.1
+
+    # Media commands (SMPTE ST 2110)
+    dtk media list-streams capture.pcap
+    dtk media export-audio audio.pcap -o output.wav
+    dtk media export-video video.pcap -o output.mp4
+    dtk media export-anc anc.pcap -o output.json
 
 See docs/CLI.md for development guide.
 """
@@ -684,6 +692,528 @@ def mcast_leave(interface, group):
 
     except Exception as e:
         click.echo(f"Error leaving multicast group: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.group()
+def media():
+    """SMPTE ST 2110 media extraction and export commands."""
+    pass
+
+
+@media.command(name="list-streams")
+@click.argument("pcap_file")
+@click.option(
+    "--use-ptp",
+    is_flag=True,
+    help="Extract and display PTP timing information"
+)
+def list_streams(pcap_file, use_ptp):
+    """List all RTP streams in a pcap file.
+
+    PCAP_FILE can be a filename from cap_store or a full path.
+
+    Examples:
+        dtk media list-streams audio_capture.pcap
+        dtk media list-streams video_capture.pcap --use-ptp
+    """
+    try:
+        # Lazy imports
+        from dtk.network.packet.replay import get_pcap_path
+        from dtk.media.rtp_extractor import RTPStreamExtractor
+
+        # Get pcap path
+        try:
+            pcap_path = get_pcap_path(pcap_file)
+        except FileNotFoundError:
+            if not os.path.exists(pcap_file):
+                raise FileNotFoundError(f"Pcap file not found: {pcap_file}")
+            pcap_path = pcap_file
+
+        click.echo(f"Analyzing pcap file: {pcap_path}")
+        if use_ptp:
+            click.echo("PTP timing extraction enabled")
+        click.echo()
+
+        # Extract streams
+        extractor = RTPStreamExtractor(use_ptp=use_ptp)
+        extractor.extract_from_pcap(str(pcap_path))
+
+        streams = extractor.list_streams()
+
+        if not streams:
+            click.echo("No RTP streams found in pcap file.")
+            return
+
+        click.echo(f"Found {len(streams)} RTP stream(s):\n")
+
+        for ssrc, info in streams:
+            click.echo(f"SSRC: {ssrc:#010x}")
+            click.echo(f"  Payload Type: {info.payload_type} ({extractor.get_payload_type_name(info.payload_type)})")
+            click.echo(f"  Packets: {info.packet_count}")
+            click.echo(f"  Sequence: {info.first_seq} -> {info.last_seq}")
+            click.echo(f"  Timestamp Range: {info.first_timestamp} -> {info.last_timestamp}")
+            click.echo(f"  Duration: {info.duration:.3f}s")
+            click.echo(f"  Packets Lost: {info.packets_lost} ({info.packet_loss_rate:.2f}%)")
+            click.echo(f"  Out of Order: {info.packets_out_of_order}")
+            if use_ptp and info.has_ptp:
+                click.echo(f"  PTP Timing: Available")
+            click.echo()
+
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error analyzing pcap: {e}", err=True)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@media.command(name="export-audio")
+@click.argument("pcap_file")
+@click.option(
+    "--output", "-o",
+    required=True,
+    help="Output audio file path"
+)
+@click.option(
+    "--format", "-f",
+    type=click.Choice(['wav', 'flac', 'mp3'], case_sensitive=False),
+    default='wav',
+    help="Output format (default: wav)"
+)
+@click.option(
+    "--ssrc",
+    type=str,
+    help="SSRC of stream to export (hex, e.g., 0x12345678). If not specified, exports first audio stream."
+)
+@click.option(
+    "--sample-rate",
+    type=int,
+    help="Sample rate in Hz (auto-detect if not specified)"
+)
+@click.option(
+    "--bit-depth",
+    type=click.Choice(['16', '24'], case_sensitive=False),
+    help="Bit depth for output (auto-detect if not specified)"
+)
+@click.option(
+    "--channels",
+    type=int,
+    help="Number of audio channels (auto-detect if not specified)"
+)
+@click.option(
+    "--use-ptp",
+    is_flag=True,
+    help="Use PTP timestamps for timing"
+)
+@click.option(
+    "--bitrate",
+    type=int,
+    default=320,
+    help="Bitrate for MP3 export in kbps (default: 320)"
+)
+def export_audio(pcap_file, output, format, ssrc, sample_rate, bit_depth, channels, use_ptp, bitrate):
+    """Export ST 2110-30 audio stream to audio file.
+
+    Examples:
+        dtk media export-audio audio.pcap -o output.wav
+        dtk media export-audio audio.pcap -o output.flac --format flac
+        dtk media export-audio audio.pcap -o output.mp3 --format mp3 --bitrate 320
+        dtk media export-audio audio.pcap -o output.wav --ssrc 0x12345678 --use-ptp
+    """
+    try:
+        # Lazy imports
+        from dtk.network.packet.replay import get_pcap_path
+        from dtk.media.rtp_extractor import RTPStreamExtractor
+        from dtk.media.decoders import ST211030Decoder
+        from dtk.media.decoders.st2110_30 import AudioStreamParams
+        from dtk.media.exporters import AudioExporter
+
+        # Get pcap path
+        try:
+            pcap_path = get_pcap_path(pcap_file)
+        except FileNotFoundError:
+            if not os.path.exists(pcap_file):
+                raise FileNotFoundError(f"Pcap file not found: {pcap_file}")
+            pcap_path = pcap_file
+
+        click.echo(f"Processing pcap file: {pcap_path}")
+
+        # Extract streams
+        extractor = RTPStreamExtractor(use_ptp=use_ptp)
+        extractor.extract_from_pcap(str(pcap_path))
+
+        # Determine which stream to export
+        target_ssrc = None
+        if ssrc:
+            # Parse SSRC (supports hex format)
+            target_ssrc = int(ssrc, 16) if ssrc.startswith('0x') else int(ssrc)
+            if target_ssrc not in extractor.streams:
+                click.echo(f"Error: SSRC {ssrc} not found in pcap", err=True)
+                click.echo("\nAvailable streams:", err=True)
+                for s, info in extractor.list_streams():
+                    click.echo(f"  {s:#010x} - {extractor.get_payload_type_name(info.payload_type)}", err=True)
+                sys.exit(1)
+        else:
+            # Find first audio stream (PT 97 is common for ST 2110-30)
+            for s, info in extractor.list_streams():
+                if info.payload_type == 97 or 'Audio' in extractor.get_payload_type_name(info.payload_type):
+                    target_ssrc = s
+                    break
+
+            if target_ssrc is None:
+                # Just use first stream
+                if extractor.streams:
+                    target_ssrc = list(extractor.streams.keys())[0]
+                else:
+                    click.echo("Error: No RTP streams found", err=True)
+                    sys.exit(1)
+
+        stream_info = extractor.stream_info[target_ssrc]
+        packets = extractor.streams[target_ssrc]
+
+        click.echo(f"Exporting stream SSRC {target_ssrc:#010x}")
+        click.echo(f"  Payload Type: {stream_info.payload_type}")
+        click.echo(f"  Packets: {stream_info.packet_count}")
+        click.echo()
+
+        # Set up decoder parameters if specified
+        params = None
+        if sample_rate or bit_depth or channels:
+            params = AudioStreamParams(
+                sample_rate=sample_rate or 48000,
+                bit_depth=int(bit_depth) if bit_depth else 24,
+                channels=channels or 2
+            )
+
+        # Decode audio
+        click.echo("Decoding audio stream...")
+        decoder = ST211030Decoder(params=params)
+        samples = decoder.decode(packets, stream_info)
+
+        audio_info = decoder.get_audio_info()
+        click.echo(f"  Sample Rate: {audio_info['sample_rate']} Hz")
+        click.echo(f"  Bit Depth: {audio_info['bit_depth']} bits")
+        click.echo(f"  Channels: {audio_info['channels']}")
+        click.echo(f"  Duration: {audio_info['duration_formatted']}")
+        click.echo()
+
+        # Export audio
+        click.echo(f"Exporting to {format.upper()}...")
+        exporter = AudioExporter()
+        output_path = exporter.export(
+            samples=samples,
+            sample_rate=audio_info['sample_rate'],
+            output_path=output,
+            format=format,
+            bit_depth=int(bit_depth) if bit_depth else audio_info['bit_depth'],
+            bitrate=bitrate
+        )
+
+        click.echo(f"Successfully exported audio to: {output_path}")
+
+    except ImportError as e:
+        if 'soundfile' in str(e) and format == 'flac':
+            click.echo("Error: FLAC export requires the soundfile package.", err=True)
+            click.echo("Install with: pip install soundfile", err=True)
+        else:
+            click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error exporting audio: {e}", err=True)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@media.command(name="export-video")
+@click.argument("pcap_file")
+@click.option(
+    "--output", "-o",
+    required=True,
+    help="Output video file path"
+)
+@click.option(
+    "--format", "-f",
+    type=click.Choice(['mp4', 'mov', 'avi', 'mkv'], case_sensitive=False),
+    default='mp4',
+    help="Output format (default: mp4)"
+)
+@click.option(
+    "--codec", "-c",
+    type=click.Choice(['h264', 'h265', 'prores', 'prores_ks'], case_sensitive=False),
+    default='h264',
+    help="Video codec (default: h264)"
+)
+@click.option(
+    "--ssrc",
+    type=str,
+    help="SSRC of stream to export (hex). If not specified, exports first video stream."
+)
+@click.option(
+    "--crf",
+    type=int,
+    default=18,
+    help="Quality for H.264/H.265 (0-51, lower is better, default: 18)"
+)
+@click.option(
+    "--preset",
+    type=click.Choice(['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow']),
+    default='medium',
+    help="Encoding speed preset for H.264/H.265 (default: medium)"
+)
+@click.option(
+    "--prores-profile",
+    type=click.Choice(['proxy', 'lt', 'standard', 'hq', '4444', '4444xq']),
+    default='standard',
+    help="ProRes profile (default: standard)"
+)
+@click.option(
+    "--use-ptp",
+    is_flag=True,
+    help="Use PTP timestamps for timing"
+)
+def export_video(pcap_file, output, format, codec, ssrc, crf, preset, prores_profile, use_ptp):
+    """Export ST 2110-20 video stream to video file.
+
+    Examples:
+        dtk media export-video video.pcap -o output.mp4
+        dtk media export-video video.pcap -o output.mov --codec prores
+        dtk media export-video video.pcap -o output.mp4 --codec h265 --crf 20
+        dtk media export-video video.pcap -o output.mov --ssrc 0xabcdef --use-ptp
+    """
+    try:
+        # Lazy imports
+        from dtk.network.packet.replay import get_pcap_path
+        from dtk.media.rtp_extractor import RTPStreamExtractor
+        from dtk.media.decoders import ST211020Decoder
+        from dtk.media.exporters import VideoExporter
+
+        # Check if FFmpeg is available
+        if not VideoExporter.check_ffmpeg():
+            click.echo("Error: FFmpeg is not installed or not accessible.", err=True)
+            click.echo("Please install FFmpeg to export video.", err=True)
+            sys.exit(1)
+
+        # Get pcap path
+        try:
+            pcap_path = get_pcap_path(pcap_file)
+        except FileNotFoundError:
+            if not os.path.exists(pcap_file):
+                raise FileNotFoundError(f"Pcap file not found: {pcap_file}")
+            pcap_path = pcap_file
+
+        click.echo(f"Processing pcap file: {pcap_path}")
+
+        # Extract streams
+        extractor = RTPStreamExtractor(use_ptp=use_ptp)
+        extractor.extract_from_pcap(str(pcap_path))
+
+        # Determine which stream to export
+        target_ssrc = None
+        if ssrc:
+            target_ssrc = int(ssrc, 16) if ssrc.startswith('0x') else int(ssrc)
+            if target_ssrc not in extractor.streams:
+                click.echo(f"Error: SSRC {ssrc} not found in pcap", err=True)
+                sys.exit(1)
+        else:
+            # Find first video stream (PT 96 is common for ST 2110-20)
+            for s, info in extractor.list_streams():
+                if info.payload_type == 96 or 'Video' in extractor.get_payload_type_name(info.payload_type):
+                    target_ssrc = s
+                    break
+
+            if target_ssrc is None and extractor.streams:
+                target_ssrc = list(extractor.streams.keys())[0]
+
+        if target_ssrc is None:
+            click.echo("Error: No RTP streams found", err=True)
+            sys.exit(1)
+
+        stream_info = extractor.stream_info[target_ssrc]
+        packets = extractor.streams[target_ssrc]
+
+        click.echo(f"Exporting stream SSRC {target_ssrc:#010x}")
+        click.echo(f"  Payload Type: {stream_info.payload_type}")
+        click.echo(f"  Packets: {stream_info.packet_count}")
+        click.echo()
+
+        # Decode video
+        click.echo("Decoding video stream...")
+        decoder = ST211020Decoder()
+        frames = decoder.decode(packets, stream_info)
+
+        if not frames:
+            click.echo("Error: No video frames decoded", err=True)
+            sys.exit(1)
+
+        video_info = decoder.get_video_info()
+        click.echo(f"  Resolution: {video_info['resolution']}")
+        click.echo(f"  Pixel Format: {video_info['pixel_format']}")
+        click.echo(f"  Frame Rate: {video_info['frame_rate']} fps")
+        click.echo(f"  Frames: {video_info['num_frames']}")
+        click.echo(f"  Duration: {video_info['duration_seconds']:.3f}s")
+        click.echo()
+
+        # Export video
+        click.echo(f"Encoding to {format.upper()} with {codec.upper()}...")
+        exporter = VideoExporter()
+        output_path = exporter.export(
+            frames=frames,
+            frame_rate=video_info['frame_rate'],
+            output_path=output,
+            format=format,
+            codec=codec,
+            crf=crf,
+            preset=preset,
+            prores_profile=prores_profile,
+            pixel_format='yuv422' if video_info['pixel_format'] == 'YCbCr-4:2:2' else 'rgb'
+        )
+
+        click.echo(f"Successfully exported video to: {output_path}")
+
+    except Exception as e:
+        click.echo(f"Error exporting video: {e}", err=True)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@media.command(name="export-anc")
+@click.argument("pcap_file")
+@click.option(
+    "--output", "-o",
+    required=True,
+    help="Output file path"
+)
+@click.option(
+    "--format", "-f",
+    type=click.Choice(['srt', 'vtt', 'csv', 'json', 'txt'], case_sensitive=False),
+    default='json',
+    help="Output format (default: json)"
+)
+@click.option(
+    "--type", "-t",
+    type=click.Choice(['captions', 'timecode', 'all'], case_sensitive=False),
+    default='all',
+    help="Type of ancillary data to export (default: all)"
+)
+@click.option(
+    "--ssrc",
+    type=str,
+    help="SSRC of stream to export (hex). If not specified, exports first ancillary stream."
+)
+@click.option(
+    "--use-ptp",
+    is_flag=True,
+    help="Use PTP timestamps for timing"
+)
+def export_anc(pcap_file, output, format, type, ssrc, use_ptp):
+    """Export ST 2110-40 ancillary data to various formats.
+
+    Examples:
+        dtk media export-anc anc.pcap -o output.json
+        dtk media export-anc anc.pcap -o captions.srt --type captions --format srt
+        dtk media export-anc anc.pcap -o timecode.csv --type timecode --format csv
+        dtk media export-anc anc.pcap -o anc_data.txt --format txt --use-ptp
+    """
+    try:
+        # Lazy imports
+        from dtk.network.packet.replay import get_pcap_path
+        from dtk.media.rtp_extractor import RTPStreamExtractor
+        from dtk.media.decoders import ST211040Decoder
+        from dtk.media.exporters import AncillaryExporter
+
+        # Get pcap path
+        try:
+            pcap_path = get_pcap_path(pcap_file)
+        except FileNotFoundError:
+            if not os.path.exists(pcap_file):
+                raise FileNotFoundError(f"Pcap file not found: {pcap_file}")
+            pcap_path = pcap_file
+
+        click.echo(f"Processing pcap file: {pcap_path}")
+
+        # Extract streams
+        extractor = RTPStreamExtractor(use_ptp=use_ptp)
+        extractor.extract_from_pcap(str(pcap_path))
+
+        # Determine which stream to export
+        target_ssrc = None
+        if ssrc:
+            target_ssrc = int(ssrc, 16) if ssrc.startswith('0x') else int(ssrc)
+            if target_ssrc not in extractor.streams:
+                click.echo(f"Error: SSRC {ssrc} not found in pcap", err=True)
+                sys.exit(1)
+        else:
+            # Find first ancillary stream (PT 98 is common for ST 2110-40)
+            for s, info in extractor.list_streams():
+                if info.payload_type == 98 or 'Ancillary' in extractor.get_payload_type_name(info.payload_type):
+                    target_ssrc = s
+                    break
+
+            if target_ssrc is None and extractor.streams:
+                target_ssrc = list(extractor.streams.keys())[0]
+
+        if target_ssrc is None:
+            click.echo("Error: No RTP streams found", err=True)
+            sys.exit(1)
+
+        stream_info = extractor.stream_info[target_ssrc]
+        packets = extractor.streams[target_ssrc]
+
+        click.echo(f"Exporting stream SSRC {target_ssrc:#010x}")
+        click.echo(f"  Payload Type: {stream_info.payload_type}")
+        click.echo(f"  Packets: {stream_info.packet_count}")
+        click.echo()
+
+        # Decode ancillary data
+        click.echo("Decoding ancillary data...")
+        decoder = ST211040Decoder()
+        anc_packets = decoder.decode(packets, stream_info)
+
+        click.echo(f"  ANC Packets: {len(anc_packets)}")
+        click.echo(f"  Timecodes: {len(decoder.timecodes)}")
+        click.echo(f"  Captions: {len(decoder.captions)}")
+
+        # Show summary
+        summary = decoder.get_anc_summary()
+        if summary:
+            click.echo("\n  ANC Packet Types:")
+            for pkt_type, count in summary.items():
+                click.echo(f"    {pkt_type}: {count}")
+        click.echo()
+
+        # Export based on type
+        exporter = AncillaryExporter()
+
+        if type == 'captions':
+            if not decoder.captions:
+                click.echo("Warning: No captions found in stream", err=True)
+            if format not in ['srt', 'vtt']:
+                click.echo(f"Error: Format {format} not supported for captions. Use srt or vtt.", err=True)
+                sys.exit(1)
+            output_path = exporter.export_captions(decoder.captions, output, format)
+
+        elif type == 'timecode':
+            if not decoder.timecodes:
+                click.echo("Warning: No timecode data found in stream", err=True)
+            if format not in ['csv', 'txt', 'json']:
+                click.echo(f"Error: Format {format} not supported for timecode. Use csv, txt, or json.", err=True)
+                sys.exit(1)
+            output_path = exporter.export_timecode(decoder.timecodes, output, format)
+
+        else:  # all
+            output_path = exporter.export_anc_packets(anc_packets, output, format)
+
+        click.echo(f"Successfully exported ancillary data to: {output_path}")
+
+    except Exception as e:
+        click.echo(f"Error exporting ancillary data: {e}", err=True)
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 
