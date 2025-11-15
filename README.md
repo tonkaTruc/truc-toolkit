@@ -1,22 +1,69 @@
 
-# Personal QA toolkit
+# Truc Toolkit
 
-Begin collating useful code snippets and work in to a useful toolkit repo for use with network media QA scenarios.
+A network media QA toolkit for packet capture, analysis, and network interface management.
 
-Taken too long to put this together!
+## Installation
 
-## Resources
-A collection of packet captures of multi-essence media sources
+```bash
+pip install -e .
+```
 
-## Packets
-Code to handle packet building, sniffing and inspection
+## Usage
 
-## Sockets
-Open different socket types on a host machine
+### List Network Interfaces
 
-## Scripts
-Helpful scripts
+Display all available network interfaces:
 
-| Filename | Description |
-| -------- | ----------- |
-| multicast_join.py | Manage multicast subscriptions. Finds most logical host NIC given a gateway address. 
+```bash
+ttk network list-interfaces
+```
+
+Output:
+```
+lo: ['127.0.0.1', '::1', '00:00:00:00:00:00']
+eth0: ['192.168.1.100', 'fe80::a1b2:c3d4:e5f6%eth0', 'aa:bb:cc:dd:ee:ff']
+```
+
+### Capture Network Traffic
+
+Capture packets from a network interface:
+
+```bash
+# Capture 20 packets (default)
+sudo ttk network capture -i eth0
+
+# Capture specific number of packets
+sudo ttk network capture -i eth0 -c 100
+```
+
+**Note:** Requires root/sudo privileges.
+
+### Getting Help
+
+```bash
+ttk --help              # Main help
+ttk network --help      # Network commands help
+ttk network capture --help  # Specific command help
+```
+
+## Development
+
+For CLI architecture and development guide, see [docs/CLI.md](docs/CLI.md).
+
+### Project Structure
+
+```
+toolkit/
+├── ttk/
+│   ├── cli.py                    # CLI entry point
+│   ├── network/
+│   │   ├── interfaces.py         # Network interface utilities
+│   │   └── packet/
+│   │       ├── capture.py        # Packet capture
+│   │       └── packet_toolkit.py # Packet manipulation
+│   └── custom_headers/
+│       └── PTP.py                # PTP protocol headers
+├── tests/                        # Test suite
+└── pyproject.toml               # Project configuration
+```

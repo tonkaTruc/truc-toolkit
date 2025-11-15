@@ -7,14 +7,17 @@ name = "truc-toolkit"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 dependencies = [
-    "invoke>=2.2.0",
-    "netifaces>=0.11.0",
+    "click>=8.1.0",
+    "netifaces2>=0.0.22",
     "psutil>=7.1.0",
     "pytest>=8.4.2",
     "scapy>=2.6.1",
 ]
+
+[project.scripts]
+ttk = "ttk.cli:cli"
 
 [tool.setuptools.packages.find]
 include = ["ttk*"]
