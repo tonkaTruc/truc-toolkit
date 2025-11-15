@@ -70,6 +70,92 @@ class RTPStreamExtractor:
         self.streams: Dict[int, List[RTPPacketInfo]] = defaultdict(list)
         self.stream_info: Dict[int, RTPStreamInfo] = {}
 
+    def _parse_rtp_from_udp(self, udp_payload: bytes) -> Optional[Tuple[dict, bytes]]:
+        """Parse RTP header from UDP payload.
+
+        Args:
+            udp_payload: Raw UDP payload bytes
+
+        Returns:
+            Tuple of (RTP header dict, payload bytes) or None if not valid RTP
+        """
+        # Need at least 12 bytes for minimum RTP header
+        if len(udp_payload) < 12:
+            return None
+
+        # Parse first byte: V(2), P(1), X(1), CC(4)
+        first_byte = udp_payload[0]
+        version = (first_byte >> 6) & 0x03
+        padding = (first_byte >> 5) & 0x01
+        extension = (first_byte >> 4) & 0x01
+        csrc_count = first_byte & 0x0F
+
+        # Validate RTP version 2
+        if version != 2:
+            return None
+
+        # Parse second byte: M(1), PT(7)
+        second_byte = udp_payload[1]
+        marker = (second_byte >> 7) & 0x01
+        payload_type = second_byte & 0x7F
+
+        # Parse rest of fixed header
+        sequence = struct.unpack('!H', udp_payload[2:4])[0]
+        timestamp = struct.unpack('!I', udp_payload[4:8])[0]
+        ssrc = struct.unpack('!I', udp_payload[8:12])[0]
+
+        # Calculate header size
+        header_size = 12  # Base header
+
+        # Add CSRC identifiers (4 bytes each)
+        header_size += csrc_count * 4
+
+        # Check if we have enough data for CSRC list
+        if len(udp_payload) < header_size:
+            return None
+
+        # Handle extension header if present
+        if extension:
+            # Extension header is at least 4 bytes (16-bit profile + 16-bit length)
+            if len(udp_payload) < header_size + 4:
+                return None
+
+            # Get extension length (in 32-bit words, excluding the 4-byte extension header itself)
+            ext_length = struct.unpack('!H', udp_payload[header_size + 2:header_size + 4])[0]
+            header_size += 4 + (ext_length * 4)
+
+            # Verify we have enough data
+            if len(udp_payload) < header_size:
+                return None
+
+        # Handle padding if present
+        payload_start = header_size
+        payload_end = len(udp_payload)
+
+        if padding and len(udp_payload) > header_size:
+            # Last byte indicates padding length
+            padding_length = udp_payload[-1]
+            if padding_length > 0 and padding_length <= (len(udp_payload) - header_size):
+                payload_end -= padding_length
+
+        # Extract payload
+        payload = udp_payload[payload_start:payload_end]
+
+        # Build RTP header info dict
+        rtp_header = {
+            'version': version,
+            'padding': bool(padding),
+            'extension': bool(extension),
+            'csrc_count': csrc_count,
+            'marker': bool(marker),
+            'payload_type': payload_type,
+            'sequence': sequence,
+            'timestamp': timestamp,
+            'ssrc': ssrc
+        }
+
+        return rtp_header, payload
+
     def extract_from_pcap(self, pcap_path: str) -> Dict[int, List[RTPPacketInfo]]:
         """Extract all RTP streams from a pcap file.
 
@@ -88,30 +174,61 @@ class RTPStreamExtractor:
         packets = rdpcap(pcap_path)
 
         for pkt in packets:
-            if not (pkt.haslayer(UDP) and pkt.haslayer(RTP)):
-                continue
+            # First, try to check if Scapy already parsed RTP
+            if pkt.haslayer(RTP):
+                rtp = pkt[RTP]
+                arrival_time = float(pkt.time)
 
-            rtp = pkt[RTP]
-            arrival_time = float(pkt.time)
+                # Extract PTP timestamp if requested
+                ptp_timestamp = None
+                if self.use_ptp:
+                    ptp_timestamp = self._extract_ptp_timestamp(pkt)
 
-            # Extract PTP timestamp if requested
-            ptp_timestamp = None
-            if self.use_ptp:
-                ptp_timestamp = self._extract_ptp_timestamp(pkt)
+                # Create RTP packet info
+                rtp_info = RTPPacketInfo(
+                    sequence=rtp.sequence,
+                    timestamp=rtp.timestamp,
+                    ssrc=rtp.sourcesync,
+                    payload_type=rtp.payload_type,
+                    marker=bool(rtp.marker),
+                    payload=bytes(rtp.payload),
+                    arrival_time=arrival_time,
+                    ptp_timestamp=ptp_timestamp
+                )
 
-            # Create RTP packet info
-            rtp_info = RTPPacketInfo(
-                sequence=rtp.sequence,
-                timestamp=rtp.timestamp,
-                ssrc=rtp.sourcesync,
-                payload_type=rtp.payload_type,
-                marker=bool(rtp.marker),
-                payload=bytes(rtp.payload),
-                arrival_time=arrival_time,
-                ptp_timestamp=ptp_timestamp
-            )
+                self.streams[rtp.sourcesync].append(rtp_info)
 
-            self.streams[rtp.sourcesync].append(rtp_info)
+            # If not, try to manually parse RTP from UDP payload (for ST 2110)
+            elif pkt.haslayer(UDP):
+                udp = pkt[UDP]
+                udp_payload = bytes(udp.payload)
+
+                # Try to parse RTP from UDP payload
+                rtp_data = self._parse_rtp_from_udp(udp_payload)
+                if rtp_data is None:
+                    continue
+
+                rtp_header, payload = rtp_data
+                arrival_time = float(pkt.time)
+
+                # Extract PTP timestamp if requested
+                ptp_timestamp = None
+                if self.use_ptp:
+                    ptp_timestamp = self._extract_ptp_timestamp(pkt)
+
+                # Create RTP packet info
+                rtp_info = RTPPacketInfo(
+                    sequence=rtp_header['sequence'],
+                    timestamp=rtp_header['timestamp'],
+                    ssrc=rtp_header['ssrc'],
+                    payload_type=rtp_header['payload_type'],
+                    marker=rtp_header['marker'],
+                    payload=payload,
+                    arrival_time=arrival_time,
+                    ptp_timestamp=ptp_timestamp
+                )
+
+                self.streams[rtp_header['ssrc']].append(rtp_info)
 
         # Sort packets by sequence number and analyze streams
         for ssrc in self.streams:
