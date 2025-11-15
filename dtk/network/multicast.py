@@ -2,7 +2,7 @@ import logging
 import socket
 import struct
 
-from ttk.network.interfaces import create_socket, get_best_interface_for
+from dtk.network.interfaces import create_socket, get_best_interface_for
 
 
 class MulticastMgr:

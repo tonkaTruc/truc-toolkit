@@ -1,16 +1,16 @@
-"""Command-line interface for the Truc Toolkit.
+"""Command-line interface for the Dora ToolKit.
 
 Usage:
-    ttk --help
-    ttk network list-interfaces
-    ttk network capture -i eth0
-    ttk network list-pcaps
-    ttk network replay-pcap ptp_cap.pcap -i eth0
-    ttk network create-packet -i eth0
-    ttk network modify-pcap input.pcap output.pcap
-    ttk network inspect-pcap file.pcap
-    ttk network mcast-join -i eth0 --group 239.0.0.1
-    ttk network mcast-leave -i eth0 --group 239.0.0.1
+    dtk --help
+    dtk network list-interfaces
+    dtk network capture -i eth0
+    dtk network list-pcaps
+    dtk network replay-pcap ptp_cap.pcap -i eth0
+    dtk network create-packet -i eth0
+    dtk network modify-pcap input.pcap output.pcap
+    dtk network inspect-pcap file.pcap
+    dtk network mcast-join -i eth0 --group 239.0.0.1
+    dtk network mcast-leave -i eth0 --group 239.0.0.1
 
 See docs/CLI.md for development guide.
 """
@@ -20,13 +20,13 @@ import sys
 
 import click
 
-from ttk.network.interfaces import create_interfaces_dict
+from dtk.network.interfaces import create_interfaces_dict
 
 
 @click.group()
 @click.version_option(version="0.1.0")
 def cli():
-    """Truc Toolkit - Network utilities and tools."""
+    """Dora ToolKit - Network utilities and tools."""
     pass
 
 
@@ -65,7 +65,11 @@ def list_interfaces():
     type=int,
     help="Number of packets to capture (default: 20)"
 )
-def capture_traffic(interface, count):
+@click.option(
+    "--save", "-s",
+    help="Save captured packets to a file in cap_store directory (e.g., 'capture.pcap')"
+)
+def capture_traffic(interface, count, save):
     """Capture and display packet summaries from a network interface.
 
     Requires root/sudo privileges.
@@ -79,15 +83,18 @@ def capture_traffic(interface, count):
 
     try:
         # Lazy import to avoid scapy dependency issues when running other commands
-        from ttk.network.packet.capture import PackerCaptor
+        from dtk.network.packet.capture import PackerCaptor
 
         click.echo(f"Capturing {count} packets on {interface}...")
         captor = PackerCaptor(capture_int=interface)
-        pkts = captor.capture_traffic(count=count)
+        pkts = captor.capture_traffic(count=count, save_to=save)
 
         click.echo(f"\nCaptured {len(pkts)} packets:\n")
         for pkt in pkts:
             click.echo(pkt.summary())
+
+        if save:
+            click.echo(f"\nPackets saved to cap_store/{save if save.endswith(('.pcap', '.pcapng')) else save + '.pcap'}")
     except Exception as e:
         click.echo(f"Error capturing traffic: {e}", err=True)
         sys.exit(1)
@@ -98,7 +105,7 @@ def list_pcaps():
     """List available pcap files in the cap_store directory."""
     try:
         # Lazy import to avoid scapy dependency issues
-        from ttk.network.packet.replay import list_pcaps as get_pcaps
+        from dtk.network.packet.replay import list_pcaps as get_pcaps
 
         pcap_files = get_pcaps()
 
@@ -160,15 +167,15 @@ def replay_pcap(pcap_file, interface, layer, count, interval, quiet, info):
     cap_store directory, or a full path to any pcap file.
 
     Examples:
-        ttk network replay-pcap ptp_cap.pcap -i eth0
-        ttk network replay-pcap sync_messages.pcap -i eth0 -l 3
-        ttk network replay-pcap /path/to/custom.pcap -i eth0 -c 100
+        dtk network replay-pcap ptp_cap.pcap -i eth0
+        dtk network replay-pcap sync_messages.pcap -i eth0 -l 3
+        dtk network replay-pcap /path/to/custom.pcap -i eth0 -c 100
 
     Requires root/sudo privileges.
     """
     try:
         # Lazy import to avoid scapy dependency issues
-        from ttk.network.packet.replay import replay_pcap as do_replay, get_pcap_info
+        from dtk.network.packet.replay import replay_pcap as do_replay, get_pcap_info
 
         # Show info and exit if --info flag is used
         if info:
@@ -213,7 +220,7 @@ def replay_pcap(pcap_file, interface, layer, count, interval, quiet, info):
 
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
-        click.echo("\nUse 'ttk network list-pcaps' to see available files.", err=True)
+        click.echo("\nUse 'dtk network list-pcaps' to see available files.", err=True)
         sys.exit(1)
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
@@ -286,8 +293,8 @@ def create_packet(interface, src_mac, dst_mac, src_ip, dst_ip, protocol, sport, 
     """Create and send custom packets on a network interface.
 
     Examples:
-        ttk network create-packet -i eth0 --src-ip 192.168.1.100 --dst-ip 192.168.1.1 --dport 5000
-        ttk network create-packet -i eth0 --protocol tcp --sport 8080 --dport 80 --payload "Hello"
+        dtk network create-packet -i eth0 --src-ip 192.168.1.100 --dst-ip 192.168.1.1 --dport 5000
+        dtk network create-packet -i eth0 --protocol tcp --sport 8080 --dport 80 --payload "Hello"
 
     Requires root/sudo privileges.
     """
@@ -300,7 +307,7 @@ def create_packet(interface, src_mac, dst_mac, src_ip, dst_ip, protocol, sport, 
 
     try:
         # Lazy import
-        from ttk.network.packet.packet_creator import PacketBuilder
+        from dtk.network.packet.packet_creator import PacketBuilder
         from scapy.all import sendp, send
 
         # Build packet
@@ -393,14 +400,14 @@ def modify_pcap(input_file, output_file, zero_ip_src, zero_ip_dst, zero_mac_src,
     OUTPUT_FILE is where the modified pcap will be saved.
 
     Examples:
-        ttk network modify-pcap input.pcap output.pcap --anonymize
-        ttk network modify-pcap input.pcap output.pcap --zero-ip-src --zero-mac-src
-        ttk network modify-pcap input.pcap output.pcap --ip-src 10.0.0.1 --mac-src 00:11:22:33:44:55
+        dtk network modify-pcap input.pcap output.pcap --anonymize
+        dtk network modify-pcap input.pcap output.pcap --zero-ip-src --zero-mac-src
+        dtk network modify-pcap input.pcap output.pcap --ip-src 10.0.0.1 --mac-src 00:11:22:33:44:55
     """
     try:
         # Lazy imports
-        from ttk.network.packet.replay import get_pcap_path
-        from ttk.network.packet.packet_modifier import (
+        from dtk.network.packet.replay import get_pcap_path
+        from dtk.network.packet.packet_modifier import (
             anonymize_packets,
             modify_ip_field,
             modify_ethernet_field,
@@ -481,13 +488,13 @@ def inspect_pcap(pcap_file, packet_num, show_hex, layers):
     PCAP_FILE can be a filename from cap_store or a full path.
 
     Examples:
-        ttk network inspect-pcap file.pcap
-        ttk network inspect-pcap file.pcap -n 0 --show-hex
-        ttk network inspect-pcap file.pcap --layers
+        dtk network inspect-pcap file.pcap
+        dtk network inspect-pcap file.pcap -n 0 --show-hex
+        dtk network inspect-pcap file.pcap --layers
     """
     try:
         # Lazy imports
-        from ttk.network.packet.replay import get_pcap_path
+        from dtk.network.packet.replay import get_pcap_path
         from scapy.all import rdpcap, hexdump
 
         # Read pcap file
@@ -554,15 +561,28 @@ def inspect_pcap(pcap_file, packet_num, show_hex, layers):
     type=int,
     help="Number of packets to capture after joining (requires root)"
 )
-def mcast_join(interface, group, capture):
+@click.option(
+    "--save", "-s",
+    help="Save captured packets to a file in cap_store directory (e.g., 'mcast_capture.pcap'). Requires --capture."
+)
+def mcast_join(interface, group, capture, save):
     """Join a multicast group and optionally capture packets.
 
     Examples:
-        ttk network mcast-join -i eth0 --group 239.0.0.1
-        ttk network mcast-join -i eth0 --group 239.0.0.1 --capture 20
+        dtk network mcast-join -i eth0 --group 239.0.0.1
+        dtk network mcast-join -i eth0 --group 239.0.0.1 --capture 20
+        dtk network mcast-join -i eth0 --group 239.0.0.1 --capture 20 --save mcast.pcap
 
     Note: Packet capture requires root/sudo privileges.
     """
+    # Validate save option
+    if save and not capture:
+        click.echo(
+            "Error: --save option requires --capture to be specified.",
+            err=True
+        )
+        sys.exit(1)
+
     # Check for root if capture is requested
     if capture and os.geteuid() != 0:
         click.echo(
@@ -573,15 +593,15 @@ def mcast_join(interface, group, capture):
 
     try:
         # Lazy imports
-        from ttk.network.multicast import MulticastMgr
-        from ttk.network.interfaces import get_interface_ip
+        from dtk.network.multicast import MulticastMgr
+        from dtk.network.interfaces import get_interface_ip
 
         # Get the IPv4 address for the interface
         try:
             local_ip = get_interface_ip(interface)
         except ValueError as e:
             click.echo(f"Error: {e}", err=True)
-            click.echo("\nUse 'ttk network list-interfaces' to see available interfaces.", err=True)
+            click.echo("\nUse 'dtk network list-interfaces' to see available interfaces.", err=True)
             sys.exit(1)
 
         click.echo(f"Using interface {interface} ({local_ip})")
@@ -596,15 +616,18 @@ def mcast_join(interface, group, capture):
 
         # If capture is requested, capture packets
         if capture:
-            from ttk.network.packet.capture import PackerCaptor
+            from dtk.network.packet.capture import PackerCaptor
 
             click.echo(f"\nCapturing {capture} packets on {interface}...")
             captor = PackerCaptor(capture_int=interface)
-            pkts = captor.capture_traffic(count=capture)
+            pkts = captor.capture_traffic(count=capture, save_to=save)
 
             click.echo(f"\nCaptured {len(pkts)} packets:\n")
             for pkt in pkts:
                 click.echo(pkt.summary())
+
+            if save:
+                click.echo(f"\nPackets saved to cap_store/{save if save.endswith(('.pcap', '.pcapng')) else save + '.pcap'}")
 
             # Leave the multicast group after capture
             click.echo(f"\nLeaving multicast group {group}...")
@@ -612,7 +635,7 @@ def mcast_join(interface, group, capture):
             click.echo(f"Successfully left multicast group {group}")
         else:
             click.echo("\nNote: The multicast group membership will remain active.")
-            click.echo(f"Use 'ttk network mcast-leave -i {interface} --group {group}' to leave.")
+            click.echo(f"Use 'dtk network mcast-leave -i {interface} --group {group}' to leave.")
 
     except Exception as e:
         click.echo(f"Error with multicast operation: {e}", err=True)
@@ -634,19 +657,19 @@ def mcast_leave(interface, group):
     """Leave a multicast group.
 
     Examples:
-        ttk network mcast-leave -i eth0 --group 239.0.0.1
+        dtk network mcast-leave -i eth0 --group 239.0.0.1
     """
     try:
         # Lazy imports
-        from ttk.network.multicast import MulticastMgr
-        from ttk.network.interfaces import get_interface_ip
+        from dtk.network.multicast import MulticastMgr
+        from dtk.network.interfaces import get_interface_ip
 
         # Get the IPv4 address for the interface
         try:
             local_ip = get_interface_ip(interface)
         except ValueError as e:
             click.echo(f"Error: {e}", err=True)
-            click.echo("\nUse 'ttk network list-interfaces' to see available interfaces.", err=True)
+            click.echo("\nUse 'dtk network list-interfaces' to see available interfaces.", err=True)
             sys.exit(1)
 
         click.echo(f"Using interface {interface} ({local_ip})")
