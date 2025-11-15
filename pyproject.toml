@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-dtk = "dtk.cli:cli"
+dora = "dtk.cli:cli"
 
 [tool.setuptools.packages.find]
 include = ["dtk*"]
