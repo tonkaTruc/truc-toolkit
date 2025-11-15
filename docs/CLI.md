@@ -23,8 +23,8 @@ ttk (main group)
     ├── create-packet (command)
     ├── modify-pcap (command)
     ├── inspect-pcap (command)
-    ├── multicast-join (command)
-    └── multicast-leave (command)
+    ├── mcast-join (command)
+    └── mcast-leave (command)
 ```
 
 ## Adding Commands

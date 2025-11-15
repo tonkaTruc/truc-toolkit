@@ -9,8 +9,8 @@ Usage:
     ttk network create-packet -i eth0
     ttk network modify-pcap input.pcap output.pcap
     ttk network inspect-pcap file.pcap
-    ttk network multicast-join --local-ip 192.168.1.100 --group 239.0.0.1
-    ttk network multicast-leave --local-ip 192.168.1.100 --group 239.0.0.1
+    ttk network mcast-join --local-ip 192.168.1.100 --group 239.0.0.1
+    ttk network mcast-leave --local-ip 192.168.1.100 --group 239.0.0.1
 
 See docs/CLI.md for development guide.
 """
@@ -538,7 +538,7 @@ def inspect_pcap(pcap_file, packet_num, show_hex, layers):
         sys.exit(1)
 
 
-@network.command(name="multicast-join")
+@network.command(name="mcast-join")
 @click.option(
     "--local-ip",
     required=True,
@@ -558,12 +558,12 @@ def inspect_pcap(pcap_file, packet_num, show_hex, layers):
     "--interface", "-i",
     help="Network interface name for packet capture (e.g., eth0)"
 )
-def multicast_join(local_ip, group, capture, interface):
+def mcast_join(local_ip, group, capture, interface):
     """Join a multicast group and optionally capture packets.
 
     Examples:
-        ttk network multicast-join --local-ip 192.168.1.100 --group 239.0.0.1
-        ttk network multicast-join --local-ip 192.168.1.100 --group 239.0.0.1 --capture 20 -i eth0
+        ttk network mcast-join --local-ip 192.168.1.100 --group 239.0.0.1
+        ttk network mcast-join --local-ip 192.168.1.100 --group 239.0.0.1 --capture 20 -i eth0
 
     Note: Packet capture requires root/sudo privileges.
     """
@@ -616,14 +616,14 @@ def multicast_join(local_ip, group, capture, interface):
             click.echo(f"Successfully left multicast group {group}")
         else:
             click.echo("\nNote: The multicast group membership will remain active.")
-            click.echo(f"Use 'ttk network multicast-leave --local-ip {local_ip} --group {group}' to leave.")
+            click.echo(f"Use 'ttk network mcast-leave --local-ip {local_ip} --group {group}' to leave.")
 
     except Exception as e:
         click.echo(f"Error with multicast operation: {e}", err=True)
         sys.exit(1)
 
 
-@network.command(name="multicast-leave")
+@network.command(name="mcast-leave")
 @click.option(
     "--local-ip",
     required=True,
@@ -634,11 +634,11 @@ def multicast_join(local_ip, group, capture, interface):
     required=True,
     help="Multicast group IP address to leave (e.g., 239.0.0.1)"
 )
-def multicast_leave(local_ip, group):
+def mcast_leave(local_ip, group):
     """Leave a multicast group.
 
     Examples:
-        ttk network multicast-leave --local-ip 192.168.1.100 --group 239.0.0.1
+        ttk network mcast-leave --local-ip 192.168.1.100 --group 239.0.0.1
     """
     try:
         # Lazy import
