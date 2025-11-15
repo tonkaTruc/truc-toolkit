@@ -26,6 +26,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     gcc \
     g++ \
+    make \
+    cmake \
     git \
     # Network tools (useful for debugging)
     net-tools \
