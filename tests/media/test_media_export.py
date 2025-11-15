@@ -50,6 +50,7 @@ def test_list_streams():
 
         for ssrc, info in streams:
             print(f"SSRC: {ssrc:#010x}")
+            print(f"  Stream Type: {info.stream_type}")
             print(f"  Payload Type: {info.payload_type} ({extractor.get_payload_type_name(info.payload_type)})")
             print(f"  Packets: {info.packet_count}")
             print(f"  Sequence: {info.first_seq} -> {info.last_seq}")

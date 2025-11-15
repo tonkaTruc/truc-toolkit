@@ -2,8 +2,11 @@
 
 import struct
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Literal
 from collections import defaultdict
+
+# Stream type literal
+StreamType = Literal["audio", "video", "meta", "unknown"]
 
 
 @dataclass
@@ -33,6 +36,7 @@ class RTPStreamInfo:
     packets_out_of_order: int
     start_time: float
     end_time: float
+    stream_type: StreamType = "unknown"
     has_ptp: bool = False
 
     @property
@@ -60,13 +64,47 @@ class RTPStreamExtractor:
         # Dynamic payload types can vary
     }
 
-    def __init__(self, use_ptp: bool = False):
+    # Payload type to stream type mapping for auto-detection
+    PAYLOAD_TYPE_TO_STREAM_TYPE = {
+        # ST 2110-20 Video (typically 96)
+        96: "video",
+        # ST 2110-30 Audio (typically 97)
+        97: "audio",
+        # ST 2110-31 Audio (AES3)
+        100: "audio",
+        # ST 2110-40 Ancillary/Metadata (typically 98)
+        98: "meta",
+        # Common audio payload types
+        0: "audio",   # PCMU
+        3: "audio",   # GSM
+        4: "audio",   # G723
+        5: "audio",   # DVI4 8kHz
+        6: "audio",   # DVI4 16kHz
+        7: "audio",   # LPC
+        8: "audio",   # PCMA
+        9: "audio",   # G722
+        10: "audio",  # L16 stereo
+        11: "audio",  # L16 mono
+        14: "audio",  # MPA
+        # Common video payload types
+        26: "video",  # JPEG
+        31: "video",  # H261
+        32: "video",  # MPV
+        33: "video",  # MP2T
+        34: "video",  # H263
+    }
+
+    def __init__(self, use_ptp: bool = False, stream_type_override: Optional[Dict[int, StreamType]] = None):
         """Initialize RTP stream extractor.
 
         Args:
             use_ptp: Whether to extract and use PTP timestamps
+            stream_type_override: Optional dict mapping SSRC to forced stream type.
+                                 If specified, overrides auto-detection for those SSRCs.
+                                 Example: {0x12345678: "audio", 0x87654321: "video"}
         """
         self.use_ptp = use_ptp
+        self.stream_type_override = stream_type_override or {}
         self.streams: Dict[int, List[RTPPacketInfo]] = defaultdict(list)
         self.stream_info: Dict[int, RTPStreamInfo] = {}
 
@@ -260,6 +298,23 @@ class RTPStreamExtractor:
 
         return None
 
+    def _detect_stream_type(self, ssrc: int, payload_type: int) -> StreamType:
+        """Detect stream type based on SSRC and payload type.
+
+        Args:
+            ssrc: Stream SSRC
+            payload_type: RTP payload type
+
+        Returns:
+            Stream type: "audio", "video", "meta", or "unknown"
+        """
+        # Check for manual override first
+        if ssrc in self.stream_type_override:
+            return self.stream_type_override[ssrc]
+
+        # Auto-detect based on payload type
+        return self.PAYLOAD_TYPE_TO_STREAM_TYPE.get(payload_type, "unknown")
+
     def _analyze_stream(self, packets: List[RTPPacketInfo]) -> RTPStreamInfo:
         """Analyze an RTP stream and gather statistics.
 
@@ -291,6 +346,9 @@ class RTPStreamExtractor:
         # Check if stream has PTP timestamps
         has_ptp = any(p.ptp_timestamp is not None for p in packets)
 
+        # Detect stream type (auto-detect or override)
+        stream_type = self._detect_stream_type(first_pkt.ssrc, first_pkt.payload_type)
+
         return RTPStreamInfo(
             ssrc=first_pkt.ssrc,
             payload_type=first_pkt.payload_type,
@@ -303,6 +361,7 @@ class RTPStreamExtractor:
             packets_out_of_order=packets_out_of_order,
             start_time=first_pkt.arrival_time,
             end_time=last_pkt.arrival_time,
+            stream_type=stream_type,
             has_ptp=has_ptp
         )
 
