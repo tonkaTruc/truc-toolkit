@@ -708,19 +708,64 @@ def media():
     is_flag=True,
     help="Extract and display PTP timing information"
 )
-def list_streams(pcap_file, use_ptp):
+@click.option(
+    "--stream-type",
+    multiple=True,
+    help="Override stream type by SSRC. Format: SSRC=type (e.g., 0x12345678=audio). Can be specified multiple times."
+)
+@click.option(
+    "--payload-type",
+    multiple=True,
+    help="Override stream type by payload type. Format: PT=type (e.g., 98=audio). Can be specified multiple times."
+)
+def list_streams(pcap_file, use_ptp, stream_type, payload_type):
     """List all RTP streams in a pcap file.
 
     PCAP_FILE can be a filename from cap_store or a full path.
 
+    Stream type can be: audio, video, meta, or unknown.
+
     Examples:
         dtk media list-streams audio_capture.pcap
         dtk media list-streams video_capture.pcap --use-ptp
+        dtk media list-streams capture.pcap --stream-type 0x12345678=audio
+        dtk media list-streams capture.pcap --payload-type 98=audio
+        dtk media list-streams capture.pcap --stream-type 0xabc=audio --payload-type 98=video
     """
     try:
         # Lazy imports
         from dtk.network.packet.replay import get_pcap_path
         from dtk.media.rtp_extractor import RTPStreamExtractor
+
+        # Parse stream type overrides
+        ssrc_override = {}
+        pt_override = {}
+
+        # Parse --stream-type options (SSRC-based overrides)
+        for override in stream_type:
+            try:
+                ssrc_str, stype = override.split('=')
+                ssrc_val = int(ssrc_str, 16) if ssrc_str.startswith('0x') else int(ssrc_str)
+                if stype not in ['audio', 'video', 'meta', 'unknown']:
+                    click.echo(f"Error: Invalid stream type '{stype}'. Must be: audio, video, meta, or unknown", err=True)
+                    sys.exit(1)
+                ssrc_override[ssrc_val] = stype
+            except ValueError as e:
+                click.echo(f"Error: Invalid stream-type format '{override}'. Use SSRC=type (e.g., 0x12345678=audio)", err=True)
+                sys.exit(1)
+
+        # Parse --payload-type options (PT-based overrides)
+        for override in payload_type:
+            try:
+                pt_str, stype = override.split('=')
+                pt_val = int(pt_str)
+                if stype not in ['audio', 'video', 'meta', 'unknown']:
+                    click.echo(f"Error: Invalid stream type '{stype}'. Must be: audio, video, meta, or unknown", err=True)
+                    sys.exit(1)
+                pt_override[pt_val] = stype
+            except ValueError as e:
+                click.echo(f"Error: Invalid payload-type format '{override}'. Use PT=type (e.g., 98=audio)", err=True)
+                sys.exit(1)
 
         # Get pcap path
         try:
@@ -733,10 +778,18 @@ def list_streams(pcap_file, use_ptp):
         click.echo(f"Analyzing pcap file: {pcap_path}")
         if use_ptp:
             click.echo("PTP timing extraction enabled")
+        if ssrc_override:
+            click.echo(f"Stream type overrides (by SSRC): {len(ssrc_override)} configured")
+        if pt_override:
+            click.echo(f"Stream type overrides (by payload type): {len(pt_override)} configured")
         click.echo()
 
         # Extract streams
-        extractor = RTPStreamExtractor(use_ptp=use_ptp)
+        extractor = RTPStreamExtractor(
+            use_ptp=use_ptp,
+            stream_type_override=ssrc_override,
+            payload_type_override=pt_override
+        )
         extractor.extract_from_pcap(str(pcap_path))
 
         streams = extractor.list_streams()
@@ -749,6 +802,7 @@ def list_streams(pcap_file, use_ptp):
 
         for ssrc, info in streams:
             click.echo(f"SSRC: {ssrc:#010x}")
+            click.echo(f"  Stream Type: {info.stream_type}")
             click.echo(f"  Payload Type: {info.payload_type} ({extractor.get_payload_type_name(info.payload_type)})")
             click.echo(f"  Packets: {info.packet_count}")
             click.echo(f"  Sequence: {info.first_seq} -> {info.last_seq}")

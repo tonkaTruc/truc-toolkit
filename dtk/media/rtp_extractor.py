@@ -2,8 +2,11 @@
 
 import struct
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Literal
 from collections import defaultdict
+
+# Stream type literal
+StreamType = Literal["audio", "video", "meta", "unknown"]
 
 
 @dataclass
@@ -33,6 +36,7 @@ class RTPStreamInfo:
     packets_out_of_order: int
     start_time: float
     end_time: float
+    stream_type: StreamType = "unknown"
     has_ptp: bool = False
 
     @property
@@ -60,15 +64,144 @@ class RTPStreamExtractor:
         # Dynamic payload types can vary
     }
 
-    def __init__(self, use_ptp: bool = False):
+    # Payload type to stream type mapping for auto-detection
+    PAYLOAD_TYPE_TO_STREAM_TYPE = {
+        # ST 2110-20 Video (typically 96)
+        96: "video",
+        # ST 2110-30 Audio (typically 97)
+        97: "audio",
+        # ST 2110-31 Audio (AES3)
+        100: "audio",
+        # ST 2110-40 Ancillary/Metadata (typically 98)
+        98: "meta",
+        # Common audio payload types
+        0: "audio",   # PCMU
+        3: "audio",   # GSM
+        4: "audio",   # G723
+        5: "audio",   # DVI4 8kHz
+        6: "audio",   # DVI4 16kHz
+        7: "audio",   # LPC
+        8: "audio",   # PCMA
+        9: "audio",   # G722
+        10: "audio",  # L16 stereo
+        11: "audio",  # L16 mono
+        14: "audio",  # MPA
+        # Common video payload types
+        26: "video",  # JPEG
+        31: "video",  # H261
+        32: "video",  # MPV
+        33: "video",  # MP2T
+        34: "video",  # H263
+    }
+
+    def __init__(
+        self,
+        use_ptp: bool = False,
+        stream_type_override: Optional[Dict[int, StreamType]] = None,
+        payload_type_override: Optional[Dict[int, StreamType]] = None
+    ):
         """Initialize RTP stream extractor.
 
         Args:
             use_ptp: Whether to extract and use PTP timestamps
+            stream_type_override: Optional dict mapping SSRC to forced stream type.
+                                 If specified, overrides auto-detection for those SSRCs.
+                                 Example: {0x12345678: "audio", 0x87654321: "video"}
+            payload_type_override: Optional dict mapping payload type to forced stream type.
+                                  Overrides the default payload type mapping.
+                                  Example: {98: "audio", 100: "video"}
         """
         self.use_ptp = use_ptp
+        self.stream_type_override = stream_type_override or {}
+        self.payload_type_override = payload_type_override or {}
         self.streams: Dict[int, List[RTPPacketInfo]] = defaultdict(list)
         self.stream_info: Dict[int, RTPStreamInfo] = {}
+
+    def _parse_rtp_from_udp(self, udp_payload: bytes) -> Optional[Tuple[dict, bytes]]:
+        """Parse RTP header from UDP payload.
+
+        Args:
+            udp_payload: Raw UDP payload bytes
+
+        Returns:
+            Tuple of (RTP header dict, payload bytes) or None if not valid RTP
+        """
+        # Need at least 12 bytes for minimum RTP header
+        if len(udp_payload) < 12:
+            return None
+
+        # Parse first byte: V(2), P(1), X(1), CC(4)
+        first_byte = udp_payload[0]
+        version = (first_byte >> 6) & 0x03
+        padding = (first_byte >> 5) & 0x01
+        extension = (first_byte >> 4) & 0x01
+        csrc_count = first_byte & 0x0F
+
+        # Validate RTP version 2
+        if version != 2:
+            return None
+
+        # Parse second byte: M(1), PT(7)
+        second_byte = udp_payload[1]
+        marker = (second_byte >> 7) & 0x01
+        payload_type = second_byte & 0x7F
+
+        # Parse rest of fixed header
+        sequence = struct.unpack('!H', udp_payload[2:4])[0]
+        timestamp = struct.unpack('!I', udp_payload[4:8])[0]
+        ssrc = struct.unpack('!I', udp_payload[8:12])[0]
+
+        # Calculate header size
+        header_size = 12  # Base header
+
+        # Add CSRC identifiers (4 bytes each)
+        header_size += csrc_count * 4
+
+        # Check if we have enough data for CSRC list
+        if len(udp_payload) < header_size:
+            return None
+
+        # Handle extension header if present
+        if extension:
+            # Extension header is at least 4 bytes (16-bit profile + 16-bit length)
+            if len(udp_payload) < header_size + 4:
+                return None
+
+            # Get extension length (in 32-bit words, excluding the 4-byte extension header itself)
+            ext_length = struct.unpack('!H', udp_payload[header_size + 2:header_size + 4])[0]
+            header_size += 4 + (ext_length * 4)
+
+            # Verify we have enough data
+            if len(udp_payload) < header_size:
+                return None
+
+        # Handle padding if present
+        payload_start = header_size
+        payload_end = len(udp_payload)
+
+        if padding and len(udp_payload) > header_size:
+            # Last byte indicates padding length
+            padding_length = udp_payload[-1]
+            if padding_length > 0 and padding_length <= (len(udp_payload) - header_size):
+                payload_end -= padding_length
+
+        # Extract payload
+        payload = udp_payload[payload_start:payload_end]
+
+        # Build RTP header info dict
+        rtp_header = {
+            'version': version,
+            'padding': bool(padding),
+            'extension': bool(extension),
+            'csrc_count': csrc_count,
+            'marker': bool(marker),
+            'payload_type': payload_type,
+            'sequence': sequence,
+            'timestamp': timestamp,
+            'ssrc': ssrc
+        }
+
+        return rtp_header, payload
 
     def extract_from_pcap(self, pcap_path: str) -> Dict[int, List[RTPPacketInfo]]:
         """Extract all RTP streams from a pcap file.
@@ -88,30 +221,61 @@ class RTPStreamExtractor:
         packets = rdpcap(pcap_path)
 
         for pkt in packets:
-            if not (pkt.haslayer(UDP) and pkt.haslayer(RTP)):
-                continue
+            # First, try to check if Scapy already parsed RTP
+            if pkt.haslayer(RTP):
+                rtp = pkt[RTP]
+                arrival_time = float(pkt.time)
 
-            rtp = pkt[RTP]
-            arrival_time = float(pkt.time)
+                # Extract PTP timestamp if requested
+                ptp_timestamp = None
+                if self.use_ptp:
+                    ptp_timestamp = self._extract_ptp_timestamp(pkt)
 
-            # Extract PTP timestamp if requested
-            ptp_timestamp = None
-            if self.use_ptp:
-                ptp_timestamp = self._extract_ptp_timestamp(pkt)
+                # Create RTP packet info
+                rtp_info = RTPPacketInfo(
+                    sequence=rtp.sequence,
+                    timestamp=rtp.timestamp,
+                    ssrc=rtp.sourcesync,
+                    payload_type=rtp.payload_type,
+                    marker=bool(rtp.marker),
+                    payload=bytes(rtp.payload),
+                    arrival_time=arrival_time,
+                    ptp_timestamp=ptp_timestamp
+                )
 
-            # Create RTP packet info
-            rtp_info = RTPPacketInfo(
-                sequence=rtp.sequence,
-                timestamp=rtp.timestamp,
-                ssrc=rtp.sourcesync,
-                payload_type=rtp.payload_type,
-                marker=bool(rtp.marker),
-                payload=bytes(rtp.payload),
-                arrival_time=arrival_time,
-                ptp_timestamp=ptp_timestamp
-            )
+                self.streams[rtp.sourcesync].append(rtp_info)
 
-            self.streams[rtp.sourcesync].append(rtp_info)
+            # If not, try to manually parse RTP from UDP payload (for ST 2110)
+            elif pkt.haslayer(UDP):
+                udp = pkt[UDP]
+                udp_payload = bytes(udp.payload)
+
+                # Try to parse RTP from UDP payload
+                rtp_data = self._parse_rtp_from_udp(udp_payload)
+                if rtp_data is None:
+                    continue
+
+                rtp_header, payload = rtp_data
+                arrival_time = float(pkt.time)
+
+                # Extract PTP timestamp if requested
+                ptp_timestamp = None
+                if self.use_ptp:
+                    ptp_timestamp = self._extract_ptp_timestamp(pkt)
+
+                # Create RTP packet info
+                rtp_info = RTPPacketInfo(
+                    sequence=rtp_header['sequence'],
+                    timestamp=rtp_header['timestamp'],
+                    ssrc=rtp_header['ssrc'],
+                    payload_type=rtp_header['payload_type'],
+                    marker=rtp_header['marker'],
+                    payload=payload,
+                    arrival_time=arrival_time,
+                    ptp_timestamp=ptp_timestamp
+                )
+
+                self.streams[rtp_header['ssrc']].append(rtp_info)
 
         # Sort packets by sequence number and analyze streams
         for ssrc in self.streams:
@@ -142,6 +306,27 @@ class RTPStreamExtractor:
             pass
 
         return None
+
+    def _detect_stream_type(self, ssrc: int, payload_type: int) -> StreamType:
+        """Detect stream type based on SSRC and payload type.
+
+        Args:
+            ssrc: Stream SSRC
+            payload_type: RTP payload type
+
+        Returns:
+            Stream type: "audio", "video", "meta", or "unknown"
+        """
+        # Check for SSRC-based manual override first (highest priority)
+        if ssrc in self.stream_type_override:
+            return self.stream_type_override[ssrc]
+
+        # Check for payload type override (medium priority)
+        if payload_type in self.payload_type_override:
+            return self.payload_type_override[payload_type]
+
+        # Auto-detect based on default payload type mapping (lowest priority)
+        return self.PAYLOAD_TYPE_TO_STREAM_TYPE.get(payload_type, "unknown")
 
     def _analyze_stream(self, packets: List[RTPPacketInfo]) -> RTPStreamInfo:
         """Analyze an RTP stream and gather statistics.
@@ -174,6 +359,9 @@ class RTPStreamExtractor:
         # Check if stream has PTP timestamps
         has_ptp = any(p.ptp_timestamp is not None for p in packets)
 
+        # Detect stream type (auto-detect or override)
+        stream_type = self._detect_stream_type(first_pkt.ssrc, first_pkt.payload_type)
+
         return RTPStreamInfo(
             ssrc=first_pkt.ssrc,
             payload_type=first_pkt.payload_type,
@@ -186,6 +374,7 @@ class RTPStreamExtractor:
             packets_out_of_order=packets_out_of_order,
             start_time=first_pkt.arrival_time,
             end_time=last_pkt.arrival_time,
+            stream_type=stream_type,
             has_ptp=has_ptp
         )
 
