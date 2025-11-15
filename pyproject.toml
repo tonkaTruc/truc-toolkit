@@ -7,7 +7,7 @@ name = "dora-toolkit"
 version = "0.1.0"
 description = "Dora ToolKit - Network utilities and tools for packet capture, analysis, and network interface management"
 readme = "README.md"
-requires-python = ">=3.11"  # Docker image uses 3.12 for newer system packages
+requires-python = ">=3.11"
 dependencies = [
     "click>=8.1.0",
     "netifaces2>=0.0.22",
@@ -23,7 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 streaming = [
-    "PyGObject>=3.42.0; platform_system != 'Linux'",  # Use system python3-gi on Linux/Docker
+    "PyGObject>=3.42.0",
 ]
 
 [project.scripts]

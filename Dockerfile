@@ -1,14 +1,18 @@
 # Dockerfile for Dora ToolKit with Python and GStreamer
-# Using Python 3.12 with Debian Trixie for newer GObject Introspection (girepository-2.0)
-FROM python:3.12-slim
+# Using Ubuntu 24.04 for GObject Introspection with girepository-2.0 support
+FROM ubuntu:24.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-# Install system dependencies including GStreamer
+# Install Python and system dependencies including GStreamer
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Python
+    python3.12 \
+    python3-pip \
+    python3.12-venv \
     # GStreamer core and plugins
     gstreamer1.0-tools \
     gstreamer1.0-plugins-base \
@@ -40,7 +44,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # FFmpeg for media processing
     ffmpeg \
     libsndfile1 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    # Set python3.12 as default python3
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
 
 # Set working directory
 WORKDIR /app
@@ -54,10 +61,8 @@ COPY README.md ./
 RUN mkdir -p Resources/cap_store
 
 # Install Python dependencies
-# Use system python3-gi (already installed above) instead of building PyGObject from pip
-# This avoids girepository-2.0 build dependency issues
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -e ".[streaming]"
+RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    python3 -m pip install --no-cache-dir -e ".[streaming]"
 
 # Verify CLI entry point is available
 RUN which dora && dora --help
