@@ -3,7 +3,7 @@ import json
 import pytest
 
 from tests import log
-from ttk.network.interfaces import create_interfaces_dict
+from dtk.network.interfaces import create_interfaces_dict
 
 
 @pytest.fixture()

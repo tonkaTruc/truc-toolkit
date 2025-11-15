@@ -8,13 +8,13 @@ Defined in `pyproject.toml`:
 
 ```toml
 [project.scripts]
-ttk = "ttk.cli:cli"
+dtk = "dtk.cli:cli"
 ```
 
 ## Command Structure
 
 ```
-ttk (main group)
+dtk (main group)
 └── network (command group)
     ├── list-interfaces (command)
     ├── capture (command)
@@ -61,7 +61,7 @@ def create_packet(type):
 ```python
 @network.command()
 def capture_traffic():
-    from ttk.network.packet.capture import PackerCaptor
+    from dtk.network.packet.capture import PackerCaptor
     # Implementation
 ```
 
@@ -98,7 +98,7 @@ click.echo("Error message", err=True)
 **Environment Variables:**
 
 ```python
-@click.option("--interface", envvar="TTK_INTERFACE")
+@click.option("--interface", envvar="DTK_INTERFACE")
 ```
 
 **Progress Bars:**
@@ -120,7 +120,7 @@ click.echo(click.style("Error!", fg="red"))
 
 ```python
 from click.testing import CliRunner
-from ttk.cli import cli
+from dtk.cli import cli
 
 def test_list_interfaces():
     runner = CliRunner()

@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "truc-toolkit"
+name = "dora-toolkit"
 version = "0.1.0"
-description = "Add your description here"
+description = "Dora ToolKit - Network utilities and tools for packet capture, analysis, and network interface management"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -17,10 +17,10 @@ dependencies = [
 ]
 
 [project.scripts]
-ttk = "ttk.cli:cli"
+dtk = "dtk.cli:cli"
 
 [tool.setuptools.packages.find]
-include = ["ttk*"]
+include = ["dtk*"]
 exclude = ["Resources*", "tests*"]
 
 [tool.pytest.ini_options]

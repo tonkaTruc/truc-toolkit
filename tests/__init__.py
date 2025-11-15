@@ -1,4 +1,4 @@
 import logging
 
-log = logging.getLogger("ttk.tests")
+log = logging.getLogger("dtk.tests")
 log.setLevel(logging.INFO)

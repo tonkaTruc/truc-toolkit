@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from ttk.network.packet.replay import (
+from dtk.network.packet.replay import (
     get_cap_store_path,
     list_pcaps,
     get_pcap_path,
