@@ -7,7 +7,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-RUN apt-get install -y python3.12 \
+RUN apt-get -y --no-install-recommends install \
+    python3.12 \
     python3-pip \
     python3.12-venv \
     python3-dev \
@@ -51,10 +52,10 @@ RUN apt-get -y --no-install-recommends install \
     python3-gi \
     python-gi-dev
 
-    RUN rm -rf /var/lib/apt/lists/* \
-        # Set python3.12 as default python3
-        && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
-        && update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
+RUN rm -rf /var/lib/apt/lists/* \
+    # Set python3.12 as default python3
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
 
 # # GObject Introspection and Python bindings
 # libgirepository1.0-dev \
