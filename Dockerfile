@@ -84,7 +84,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # libsndfile1
 
 # Install GStreamer and its dependencies
-RUN apt-get -y --no-install-recommends install \
+RUN apt-get update && apt-get -y --no-install-recommends install \
     git \
     cmake \
     autoconf \
