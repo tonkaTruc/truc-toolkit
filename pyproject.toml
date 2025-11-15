@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "truc-toolkit"
 version = "0.1.0"
@@ -11,6 +15,10 @@ dependencies = [
     "pytest>=8.4.2",
     "scapy>=2.6.1",
 ]
+
+[tool.setuptools.packages.find]
+include = ["ttk*"]
+exclude = ["Resources*", "tests*"]
 
 [tool.pytest.ini_options]
 log_cli = true
