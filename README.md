@@ -104,6 +104,23 @@ ttk network inspect-pcap file.pcap
 ttk network inspect-pcap file.pcap -n 0 --layers --show-hex
 ```
 
+### Multicast Group Management
+
+Join and leave multicast groups:
+
+```bash
+# Join a multicast group
+ttk network mcast-join -i eth0 --group 239.0.0.1
+
+# Join a multicast group and capture 20 packets
+sudo ttk network mcast-join -i eth0 --group 239.0.0.1 --capture 20
+
+# Leave a multicast group
+ttk network mcast-leave -i eth0 --group 239.0.0.1
+```
+
+**Note:** The interface's IPv4 address is automatically detected. Packet capture requires root/sudo privileges. When using `--capture`, the command will automatically leave the multicast group after capturing the specified number of packets.
+
 ### Getting Help
 
 ```bash
@@ -124,7 +141,7 @@ toolkit/
 │   ├── cli.py                      # CLI entry point
 │   ├── network/
 │   │   ├── interfaces.py           # Network interface utilities
-│   │   ├── multicast.py            # Multicast group management (future)
+│   │   ├── multicast.py            # Multicast group management
 │   │   ├── server.py               # Simple TCP server (future)
 │   │   └── packet/
 │   │       ├── capture.py          # Packet capture
