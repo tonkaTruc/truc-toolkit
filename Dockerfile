@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Python
     python3.12 \
     python3.12-venv \
+    python3.12-dev \
     # Build tools
     curl \
     # GStreamer core and plugins
