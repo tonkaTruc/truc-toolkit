@@ -8,13 +8,13 @@ Defined in `pyproject.toml`:
 
 ```toml
 [project.scripts]
-dtk = "dtk.cli:cli"
+dora = "dtk.cli:cli"
 ```
 
 ## Command Structure
 
 ```
-dtk (main group)
+dora (main group)
 └── network (command group)
     ├── list-interfaces (command)
     ├── capture (command)
@@ -98,7 +98,7 @@ click.echo("Error message", err=True)
 **Environment Variables:**
 
 ```python
-@click.option("--interface", envvar="DTK_INTERFACE")
+@click.option("--interface", envvar="DORA_INTERFACE")
 ```
 
 **Progress Bars:**

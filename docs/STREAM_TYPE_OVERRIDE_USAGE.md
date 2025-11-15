@@ -12,7 +12,7 @@ The RTP stream analyzer auto-detects stream types based on RTP payload type (PT)
 
 ```bash
 # This ST 2110-31 audio file uses PT 98:
-$ dtk media list-streams ST2110-31_2ch_PCM_1kHz_20dBFS.pcap
+$ dora media list-streams ST2110-31_2ch_PCM_1kHz_20dBFS.pcap
 
 Found 1 RTP stream(s):
 
@@ -34,7 +34,7 @@ Override all streams with a specific payload type:
 
 ```bash
 # Force all PT 98 streams to be detected as audio
-$ dtk media list-streams ST2110-31_2ch_PCM_1kHz_20dBFS.pcap --payload-type 98=audio
+$ dora media list-streams ST2110-31_2ch_PCM_1kHz_20dBFS.pcap --payload-type 98=audio
 
 Analyzing pcap file: /path/to/ST2110-31_2ch_PCM_1kHz_20dBFS.pcap
 Stream type overrides (by payload type): 1 configured
@@ -52,7 +52,7 @@ SSRC: 0xe003dcb4
 Multiple payload type overrides:
 
 ```bash
-$ dtk media list-streams capture.pcap \
+$ dora media list-streams capture.pcap \
     --payload-type 98=audio \
     --payload-type 100=video
 ```
@@ -63,10 +63,10 @@ Override a specific stream by SSRC (for fine-grained control):
 
 ```bash
 # Force specific SSRC to be audio (supports hex or decimal)
-$ dtk media list-streams capture.pcap --stream-type 0xe003dcb4=audio
+$ dora media list-streams capture.pcap --stream-type 0xe003dcb4=audio
 
 # Multiple SSRC overrides
-$ dtk media list-streams capture.pcap \
+$ dora media list-streams capture.pcap \
     --stream-type 0x12345678=audio \
     --stream-type 0xabcdef00=video
 ```
@@ -77,7 +77,7 @@ Combine both methods for maximum flexibility:
 
 ```bash
 # PT 98 defaults to audio, but SSRC 0xabc is meta
-$ dtk media list-streams capture.pcap \
+$ dora media list-streams capture.pcap \
     --payload-type 98=audio \
     --stream-type 0xabc=meta
 ```
@@ -104,7 +104,7 @@ This means SSRC overrides always win, even if there's a conflicting payload type
 ### Example Priority
 
 ```bash
-$ dtk media list-streams capture.pcap \
+$ dora media list-streams capture.pcap \
     --payload-type 98=audio \      # PT 98 → audio
     --stream-type 0xabc=video      # SSRC 0xabc → video (overrides PT rule)
 
@@ -134,14 +134,14 @@ Without overrides, the analyzer uses these defaults:
 
 ```bash
 # ST 2110-31 audio often uses PT 98, which defaults to "meta"
-$ dtk media list-streams audio.pcap --payload-type 98=audio
+$ dora media list-streams audio.pcap --payload-type 98=audio
 ```
 
 ### 2. Custom Payload Type Mapping
 
 ```bash
 # Your implementation uses non-standard payload types
-$ dtk media list-streams capture.pcap \
+$ dora media list-streams capture.pcap \
     --payload-type 102=audio \
     --payload-type 103=video
 ```
@@ -150,7 +150,7 @@ $ dtk media list-streams capture.pcap \
 
 ```bash
 # Most PT 98 is meta, but one specific SSRC is audio
-$ dtk media list-streams capture.pcap \
+$ dora media list-streams capture.pcap \
     --payload-type 98=meta \
     --stream-type 0x12345678=audio
 ```
@@ -161,7 +161,7 @@ The override options also work with export commands:
 
 ```bash
 # Export audio even though PT 98 defaults to meta
-$ dtk media export-audio audio.pcap -o output.wav --payload-type 98=audio
+$ dora media export-audio audio.pcap -o output.wav --payload-type 98=audio
 ```
 
 ## Programmatic Usage
@@ -193,11 +193,11 @@ The CLI validates your override values:
 
 ```bash
 # Invalid stream type
-$ dtk media list-streams capture.pcap --payload-type 98=foo
+$ dora media list-streams capture.pcap --payload-type 98=foo
 Error: Invalid stream type 'foo'. Must be: audio, video, meta, or unknown
 
 # Invalid format
-$ dtk media list-streams capture.pcap --payload-type 98:audio
+$ dora media list-streams capture.pcap --payload-type 98:audio
 Error: Invalid payload-type format '98:audio'. Use PT=type (e.g., 98=audio)
 ```
 

@@ -1,24 +1,28 @@
 """Command-line interface for the Dora ToolKit.
 
 Usage:
-    dtk --help
+    dora --help
 
     # Network commands
-    dtk network list-interfaces
-    dtk network capture -i eth0
-    dtk network list-pcaps
-    dtk network replay-pcap ptp_cap.pcap -i eth0
-    dtk network create-packet -i eth0
-    dtk network modify-pcap input.pcap output.pcap
-    dtk network inspect-pcap file.pcap
-    dtk network mcast-join -i eth0 --group 239.0.0.1
-    dtk network mcast-leave -i eth0 --group 239.0.0.1
+    dora network list-interfaces
+    dora network capture -i eth0
+    dora network list-pcaps
+    dora network replay-pcap ptp_cap.pcap -i eth0
+    dora network create-packet -i eth0
+    dora network modify-pcap input.pcap output.pcap
+    dora network inspect-pcap file.pcap
+    dora network mcast-join -i eth0 --group 239.0.0.1
+    dora network mcast-leave -i eth0 --group 239.0.0.1
 
     # Media commands (SMPTE ST 2110)
-    dtk media list-streams capture.pcap
-    dtk media export-audio audio.pcap -o output.wav
-    dtk media export-video video.pcap -o output.mp4
-    dtk media export-anc anc.pcap -o output.json
+    dora media list-streams capture.pcap
+    dora media export-audio audio.pcap -o output.wav
+    dora media export-video video.pcap -o output.mp4
+    dora media export-anc anc.pcap -o output.json
+
+    # File streaming (GStreamer)
+    dora media stream-audio audio.wav --dest-ip 239.0.0.1 --dest-port 5004
+    dora media stream-video video.mp4 --dest-ip 239.0.0.2 --dest-port 5005
 
 See docs/CLI.md for development guide.
 """
@@ -1266,6 +1270,349 @@ def export_anc(pcap_file, output, format, type, ssrc, use_ptp):
 
     except Exception as e:
         click.echo(f"Error exporting ancillary data: {e}", err=True)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@media.command(name="stream-audio")
+@click.argument("file_path")
+@click.option(
+    "--dest-ip",
+    required=True,
+    help="Destination IP address (e.g., 239.0.0.1 for multicast)"
+)
+@click.option(
+    "--dest-port",
+    required=True,
+    type=int,
+    help="Destination UDP port"
+)
+@click.option(
+    "--src-ip",
+    help="Source IP address (optional)"
+)
+@click.option(
+    "--interface", "-i",
+    help="Network interface to use (e.g., eth0)"
+)
+@click.option(
+    "--sample-rate",
+    type=int,
+    default=48000,
+    help="Audio sample rate in Hz (default: 48000)"
+)
+@click.option(
+    "--channels",
+    type=int,
+    default=2,
+    help="Number of audio channels (default: 2)"
+)
+@click.option(
+    "--bit-depth",
+    type=click.Choice(['16', '24']),
+    default='24',
+    help="Audio bit depth (default: 24)"
+)
+@click.option(
+    "--payload-type",
+    type=int,
+    default=97,
+    help="RTP payload type (default: 97 for ST2110-30)"
+)
+@click.option(
+    "--ssrc",
+    type=str,
+    help="RTP SSRC identifier (hex, e.g., 0x12345678)"
+)
+@click.option(
+    "--packet-time",
+    type=int,
+    default=1,
+    help="Packet time in milliseconds (default: 1ms for ST2110-31)"
+)
+@click.option(
+    "--use-ptp",
+    is_flag=True,
+    help="Enable PTP synchronization (requires ptpd running)"
+)
+@click.option(
+    "--ptp-domain",
+    type=int,
+    default=127,
+    help="PTP domain number (default: 127)"
+)
+@click.option(
+    "--save-pcap",
+    help="Save stream to pcap file (requires tcpdump). Instructions will be provided."
+)
+def stream_audio(file_path, dest_ip, dest_port, src_ip, interface, sample_rate,
+                 channels, bit_depth, payload_type, ssrc, packet_time, use_ptp,
+                 ptp_domain, save_pcap):
+    """Stream audio file as RTP stream (ST2110-30/31 compliant).
+
+    This command uses GStreamer to convert an audio file into an RTP stream
+    compatible with SMPTE ST 2110-30 (general audio) or ST 2110-31 (AES67).
+
+    FILE_PATH can be any audio format supported by GStreamer (WAV, FLAC, MP3, etc.)
+
+    Examples:
+        # Stream to multicast group
+        dora media stream-audio audio.wav --dest-ip 239.0.0.1 --dest-port 5004
+
+        # Stream with specific parameters
+        dora media stream-audio audio.flac --dest-ip 239.1.1.1 --dest-port 5004 \\
+            --sample-rate 48000 --channels 8 --bit-depth 24
+
+        # Stream with PTP synchronization
+        dora media stream-audio audio.wav --dest-ip 239.0.0.1 --dest-port 5004 \\
+            --use-ptp --ptp-domain 0 -i eth0
+
+        # Stream and capture to pcap
+        dora media stream-audio audio.wav --dest-ip 239.0.0.1 --dest-port 5004 \\
+            --save-pcap audio_stream.pcap -i eth0
+
+    Note: For pcap capture, you'll need to run tcpdump in parallel as instructed.
+    """
+    try:
+        # Lazy import
+        from dtk.media.streaming import FileStreamer, AudioStreamConfig
+        from dtk.media.streaming.file_streamer import check_gstreamer_installation
+
+        # Check GStreamer installation
+        is_installed, message = check_gstreamer_installation()
+        if not is_installed:
+            click.echo(f"Error: {message}", err=True)
+            sys.exit(1)
+
+        # Parse SSRC if provided
+        ssrc_val = None
+        if ssrc:
+            ssrc_val = int(ssrc, 16) if ssrc.startswith('0x') else int(ssrc)
+
+        # Create configuration
+        config = AudioStreamConfig(
+            dest_ip=dest_ip,
+            dest_port=dest_port,
+            src_ip=src_ip,
+            sample_rate=sample_rate,
+            channels=channels,
+            bit_depth=int(bit_depth),
+            payload_type=payload_type,
+            ssrc=ssrc_val,
+            packet_time=packet_time,
+            use_ptp=use_ptp,
+            ptp_domain=ptp_domain,
+            save_pcap=save_pcap,
+            interface=interface
+        )
+
+        # Display configuration
+        click.echo("Audio Streaming Configuration:")
+        click.echo(f"  File: {file_path}")
+        click.echo(f"  Destination: {dest_ip}:{dest_port}")
+        if interface:
+            click.echo(f"  Interface: {interface}")
+        click.echo(f"  Sample Rate: {sample_rate} Hz")
+        click.echo(f"  Channels: {channels}")
+        click.echo(f"  Bit Depth: {bit_depth} bits")
+        click.echo(f"  Payload Type: {payload_type}")
+        if ssrc_val:
+            click.echo(f"  SSRC: {ssrc_val:#010x}")
+        click.echo(f"  Packet Time: {packet_time} ms")
+        if use_ptp:
+            click.echo(f"  PTP: Enabled (domain {ptp_domain})")
+        click.echo()
+
+        # Create streamer and stream
+        streamer = FileStreamer()
+        streamer.stream_audio_file(file_path, config)
+
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except ImportError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error streaming audio: {e}", err=True)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@media.command(name="stream-video")
+@click.argument("file_path")
+@click.option(
+    "--dest-ip",
+    required=True,
+    help="Destination IP address (e.g., 239.0.0.2 for multicast)"
+)
+@click.option(
+    "--dest-port",
+    required=True,
+    type=int,
+    help="Destination UDP port"
+)
+@click.option(
+    "--src-ip",
+    help="Source IP address (optional)"
+)
+@click.option(
+    "--interface", "-i",
+    help="Network interface to use (e.g., eth0)"
+)
+@click.option(
+    "--width",
+    type=int,
+    default=1920,
+    help="Video width in pixels (default: 1920)"
+)
+@click.option(
+    "--height",
+    type=int,
+    default=1080,
+    help="Video height in pixels (default: 1080)"
+)
+@click.option(
+    "--framerate",
+    type=int,
+    default=30,
+    help="Video framerate (default: 30 fps)"
+)
+@click.option(
+    "--pixel-format",
+    type=click.Choice(['YUY2', 'UYVY', 'I420']),
+    default='UYVY',
+    help="Pixel format (default: UYVY for ST2110-20)"
+)
+@click.option(
+    "--payload-type",
+    type=int,
+    default=96,
+    help="RTP payload type (default: 96 for ST2110-20)"
+)
+@click.option(
+    "--ssrc",
+    type=str,
+    help="RTP SSRC identifier (hex, e.g., 0xabcdef00)"
+)
+@click.option(
+    "--interlaced",
+    is_flag=True,
+    help="Enable interlaced video mode"
+)
+@click.option(
+    "--use-ptp",
+    is_flag=True,
+    help="Enable PTP synchronization (requires ptpd running)"
+)
+@click.option(
+    "--ptp-domain",
+    type=int,
+    default=127,
+    help="PTP domain number (default: 127)"
+)
+@click.option(
+    "--save-pcap",
+    help="Save stream to pcap file (requires tcpdump). Instructions will be provided."
+)
+def stream_video(file_path, dest_ip, dest_port, src_ip, interface, width, height,
+                 framerate, pixel_format, payload_type, ssrc, interlaced, use_ptp,
+                 ptp_domain, save_pcap):
+    """Stream video file as RTP stream (ST2110-20 compliant).
+
+    This command uses GStreamer to convert a video file into an RTP stream
+    compatible with SMPTE ST 2110-20 (uncompressed video over IP).
+
+    FILE_PATH can be any video format supported by GStreamer (MP4, MOV, AVI, etc.)
+
+    Examples:
+        # Stream to multicast group
+        dora media stream-video video.mp4 --dest-ip 239.0.0.2 --dest-port 5005
+
+        # Stream 4K video
+        dora media stream-video video.mov --dest-ip 239.1.1.2 --dest-port 5005 \\
+            --width 3840 --height 2160 --framerate 60
+
+        # Stream with PTP synchronization
+        dora media stream-video video.mp4 --dest-ip 239.0.0.2 --dest-port 5005 \\
+            --use-ptp --ptp-domain 0 -i eth0
+
+        # Stream interlaced content
+        dora media stream-video broadcast.mxf --dest-ip 239.0.0.2 --dest-port 5005 \\
+            --interlaced --framerate 30
+
+        # Stream and capture to pcap
+        dora media stream-video video.mp4 --dest-ip 239.0.0.2 --dest-port 5005 \\
+            --save-pcap video_stream.pcap -i eth0
+
+    Note: For pcap capture, you'll need to run tcpdump in parallel as instructed.
+    """
+    try:
+        # Lazy import
+        from dtk.media.streaming import FileStreamer, VideoStreamConfig
+        from dtk.media.streaming.file_streamer import check_gstreamer_installation
+
+        # Check GStreamer installation
+        is_installed, message = check_gstreamer_installation()
+        if not is_installed:
+            click.echo(f"Error: {message}", err=True)
+            sys.exit(1)
+
+        # Parse SSRC if provided
+        ssrc_val = None
+        if ssrc:
+            ssrc_val = int(ssrc, 16) if ssrc.startswith('0x') else int(ssrc)
+
+        # Create configuration
+        config = VideoStreamConfig(
+            dest_ip=dest_ip,
+            dest_port=dest_port,
+            src_ip=src_ip,
+            width=width,
+            height=height,
+            framerate=framerate,
+            pixel_format=pixel_format,
+            payload_type=payload_type,
+            ssrc=ssrc_val,
+            interlaced=interlaced,
+            use_ptp=use_ptp,
+            ptp_domain=ptp_domain,
+            save_pcap=save_pcap,
+            interface=interface
+        )
+
+        # Display configuration
+        click.echo("Video Streaming Configuration:")
+        click.echo(f"  File: {file_path}")
+        click.echo(f"  Destination: {dest_ip}:{dest_port}")
+        if interface:
+            click.echo(f"  Interface: {interface}")
+        click.echo(f"  Resolution: {width}x{height}")
+        click.echo(f"  Framerate: {framerate} fps")
+        click.echo(f"  Pixel Format: {pixel_format}")
+        if interlaced:
+            click.echo(f"  Mode: Interlaced")
+        click.echo(f"  Payload Type: {payload_type}")
+        if ssrc_val:
+            click.echo(f"  SSRC: {ssrc_val:#010x}")
+        if use_ptp:
+            click.echo(f"  PTP: Enabled (domain {ptp_domain})")
+        click.echo()
+
+        # Create streamer and stream
+        streamer = FileStreamer()
+        streamer.stream_video_file(file_path, config)
+
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except ImportError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error streaming video: {e}", err=True)
         import traceback
         traceback.print_exc()
         sys.exit(1)
