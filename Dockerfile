@@ -18,11 +18,7 @@ RUN apt-get install -y python3.12 \
     tcpdump \
     # FFmpeg for media processing
     ffmpeg \
-    libsndfile1 \
-    && rm -rf /var/lib/apt/lists/* \
-    # Set python3.12 as default python3
-    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
-    && update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
+    libsndfile1
 
 # Install GStreamer and its dependencies
 RUN apt-get -y --no-install-recommends install \
@@ -55,6 +51,10 @@ RUN apt-get -y --no-install-recommends install \
     python3-gi \
     python-gi-dev
 
+    RUN rm -rf /var/lib/apt/lists/* \
+        # Set python3.12 as default python3
+        && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
+        && update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
 
 # # GObject Introspection and Python bindings
 # libgirepository1.0-dev \
